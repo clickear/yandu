@@ -1,0 +1,24 @@
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: yandu
+      MYSQL_USER: yandu
+      MYSQL_PASSWORD: ${YANDU_MYSQL_PASSWORD:?Set YANDU_MYSQL_PASSWORD for local development}
+      MYSQL_ROOT_PASSWORD: ${YANDU_MYSQL_ROOT_PASSWORD:?Set YANDU_MYSQL_ROOT_PASSWORD for local development}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - yandu_mysql8_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p$${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  yandu_mysql8_data:
