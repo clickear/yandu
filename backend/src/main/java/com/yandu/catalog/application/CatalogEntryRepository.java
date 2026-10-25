@@ -15,16 +15,6 @@ public interface CatalogEntryRepository {
 
     EntrySearch search(long projectId, long namespaceId, String keyword, int offset, int limit);
 
-    void insertTerm(Term term, long actorId, Instant occurredAt);
-
-    TermSearch listTerms(long projectId, String sourceLocale, String targetLocale,
-                         int offset, int limit);
-
-    List<Term> matchingTerms(long projectId, String sourceLocale, String targetLocale,
-                             String sourceText, int limit);
-
-    boolean archiveTerm(long projectId, long termId, Instant occurredAt);
-
     List<RevisionSnapshot> history(long projectId, long entryId);
 
     boolean archive(long projectId, long entryId, long actorId, Instant occurredAt);
@@ -49,8 +39,22 @@ public interface CatalogEntryRepository {
 
     record EntrySearch(List<CatalogEntry> items, long total) { }
 
-    record TermSearch(List<Term> items, long total) { }
+    /** Persistence port for glossary terms, whose lifecycle is independent from source entries. */
+    interface GlossaryTerms {
 
-    record Term(long id, long projectId, String sourceLocale, String targetLocale,
-                String sourceTerm, String targetTerm, String note, Instant createdAt) { }
+        void insert(Term term, long actorId, Instant occurredAt);
+
+        TermSearch list(long projectId, String sourceLocale, String targetLocale,
+                        int offset, int limit);
+
+        List<Term> matching(long projectId, String sourceLocale, String targetLocale,
+                            String sourceText, int limit);
+
+        boolean archive(long projectId, long termId, Instant occurredAt);
+
+        record TermSearch(List<Term> items, long total) { }
+
+        record Term(long id, long projectId, String sourceLocale, String targetLocale,
+                    String sourceTerm, String targetTerm, String note, Instant createdAt) { }
+    }
 }

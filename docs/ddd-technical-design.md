@@ -34,6 +34,8 @@
 
 DDD 模块是业务边界，不要求每个名词、命令或查询都拆成独立 Java 文件。沿用同一模块内现有应用服务、Mapper 和响应记录；只有需要独立生命周期、规则或复用边界时才拆类型。MyBatis-Plus 行映射保留必要的实体类型，轻量查询投影可复用已有行类型或模块内记录。按用户要求，在完成一个业务大模块后集中运行现有测试套件；不为每个小方法创建 `Test` 类，也不因添加简单字段就重复跑完整测试。
 
+Catalog 的源词条与术语有不同生命周期，因此应用端口分别表达词条存取和 `GlossaryTerms` 用例；MyBatis 适配器可以实现这两个端口，避免为单一适配器再新增实现类或文件。分页搜索与总数、工作台列表与统计按一次应用查询用例组合返回，Repository 不逐条暴露底层 `count` 查询。
+
 选择模块化单体是为当前团队和产品阶段降低运维成本，同时让领域模块具备边界清晰的 API。Spring Modulith 支持 Spring Boot 应用模块的结构验证、文档和模块集成测试；采用它不等于要采用事件驱动的所有机制。[Spring Modulith Fundamentals](https://docs.spring.io/spring-modulith/reference/fundamentals.html)
 
 MyBatis-Plus 提供 tenant、乐观锁、分页和全表更新/删除保护等插件；本方案使用它们减少遗漏，但所有资源访问仍必须由应用服务执行授权。官方文档明确区分多租户隔离与业务权限过滤，且自定义 SQL/Join 必须符合租户插件的解析约束。[MyBatis-Plus 多租户插件](https://baomidou.com/plugins/tenant/)、[MyBatis-Plus 插件核心](https://baomidou.com/plugins/)

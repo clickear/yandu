@@ -2,6 +2,8 @@ package com.yandu.catalog;
 
 import com.yandu.audit.AuditLog;
 import com.yandu.catalog.application.CatalogEntryRepository;
+import com.yandu.catalog.application.CatalogEntryRepository.GlossaryTerms;
+import com.yandu.catalog.application.CatalogEntryRepository.GlossaryTerms.Term;
 import com.yandu.catalog.domain.CatalogEntry;
 import com.yandu.workspace.ProjectAccessPolicy;
 import com.yandu.workspace.WorkspaceApplicationService;
@@ -18,6 +20,7 @@ import org.springframework.context.ApplicationEventPublisher;
 public class CatalogEntryApplicationService {
 
     private final CatalogEntryRepository entries;
+    private final GlossaryTerms glossary;
     private final ProjectAccessPolicy accessPolicy;
     private final WorkspaceApplicationService workspace;
     private final LongSupplier ids;
@@ -27,6 +30,7 @@ public class CatalogEntryApplicationService {
 
     public CatalogEntryApplicationService(
             CatalogEntryRepository entries,
+            GlossaryTerms glossary,
             ProjectAccessPolicy accessPolicy,
             WorkspaceApplicationService workspace,
             LongSupplier ids,
@@ -34,6 +38,7 @@ public class CatalogEntryApplicationService {
             ApplicationEventPublisher events,
             AuditLog audit) {
         this.entries = Objects.requireNonNull(entries, "entries");
+        this.glossary = Objects.requireNonNull(glossary, "glossary");
         this.accessPolicy = Objects.requireNonNull(accessPolicy, "accessPolicy");
         this.workspace = Objects.requireNonNull(workspace, "workspace");
         this.ids = Objects.requireNonNull(ids, "ids");
@@ -143,9 +148,9 @@ public class CatalogEntryApplicationService {
         var targetTerm = requiredTerm(command.targetTerm(), 500, "targetTerm");
         var note = command.note() == null ? null : command.note().trim();
         if (note != null && note.length() > 1000) throw new IllegalArgumentException("note is too long");
-        var term = new CatalogEntryRepository.Term(ids.getAsLong(), command.projectId(),
+        var term = new Term(ids.getAsLong(), command.projectId(),
                 sourceLocale, targetLocale, sourceTerm, targetTerm, note, clock.instant());
-        entries.insertTerm(term, command.actorId(), term.createdAt());
+        glossary.insert(term, command.actorId(), term.createdAt());
         audit.record(command.projectId(), command.actorId(), "GLOSSARY_TERM_CREATED",
                 "GLOSSARY_TERM", term.id(), java.util.Map.of(
                         "sourceLocale", sourceLocale, "targetLocale", targetLocale));
@@ -160,7 +165,7 @@ public class CatalogEntryApplicationService {
         var targetLocale = WorkspaceApplicationService.normalizeLocale(query.targetLocale());
         requireTermLocales(project, sourceLocale, targetLocale);
         var offset = Math.multiplyExact(query.page() - 1, query.pageSize());
-        var result = entries.listTerms(query.projectId(), sourceLocale, targetLocale,
+        var result = glossary.list(query.projectId(), sourceLocale, targetLocale,
                 offset, query.pageSize());
         var terms = result.items().stream().map(CatalogEntryApplicationService::termView).toList();
         return new TermPage(query.page(), query.pageSize(), result.total(), terms);
@@ -169,7 +174,7 @@ public class CatalogEntryApplicationService {
     @Transactional
     public void archiveTerm(ArchiveTerm command) {
         accessPolicy.requireCanManageProject(command.actorId(), command.projectId());
-        if (!entries.archiveTerm(command.projectId(), command.termId(), clock.instant())) {
+        if (!glossary.archive(command.projectId(), command.termId(), clock.instant())) {
             throw new CatalogEntryNotFoundException(command.termId());
         }
         audit.record(command.projectId(), command.actorId(), "GLOSSARY_TERM_ARCHIVED",
@@ -185,7 +190,7 @@ public class CatalogEntryApplicationService {
         var source = WorkspaceApplicationService.normalizeLocale(sourceLocale);
         var target = WorkspaceApplicationService.normalizeLocale(targetLocale);
         requireTermLocales(project, source, target);
-        return entries.matchingTerms(projectId, source, target, sourceText, limit).stream()
+        return glossary.matching(projectId, source, target, sourceText, limit).stream()
                 .map(CatalogEntryApplicationService::termView).toList();
     }
 
@@ -204,7 +209,7 @@ public class CatalogEntryApplicationService {
         return value.trim();
     }
 
-    private static TermView termView(CatalogEntryRepository.Term term) {
+    private static TermView termView(Term term) {
         return new TermView(Long.toString(term.id()), Long.toString(term.projectId()),
                 term.sourceLocale(), term.targetLocale(), term.sourceTerm(), term.targetTerm(),
                 term.note(), term.createdAt());

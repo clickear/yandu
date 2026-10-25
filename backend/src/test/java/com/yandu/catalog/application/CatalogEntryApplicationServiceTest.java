@@ -206,7 +206,8 @@ class CatalogEntryApplicationServiceTest {
             CatalogEntryRepository repository, ProjectAccessPolicy policy,
             WorkspaceApplicationService workspace) {
         var generatedId = new long[] {100};
-        return new CatalogEntryApplicationService(repository, policy, workspace, () -> ++generatedId[0],
+        return new CatalogEntryApplicationService(repository,
+                (CatalogEntryRepository.GlossaryTerms) repository, policy, workspace, () -> ++generatedId[0],
                 Clock.fixed(NOW, ZoneOffset.UTC), event -> { }, mock(AuditLog.class));
     }
 
@@ -280,7 +281,8 @@ class CatalogEntryApplicationServiceTest {
         }
     }
 
-    private static final class InMemoryCatalogEntryRepository implements CatalogEntryRepository {
+    private static final class InMemoryCatalogEntryRepository implements CatalogEntryRepository,
+            CatalogEntryRepository.GlossaryTerms {
         private final Map<Long, CatalogEntry> entries = new HashMap<>();
         private final ArrayList<Long> created = new ArrayList<>();
         private final ArrayList<Long> persistedRevisions = new ArrayList<>();
@@ -311,20 +313,22 @@ class CatalogEntryApplicationServiceTest {
         }
 
         @Override
-        public void insertTerm(Term term, long actorId, Instant occurredAt) { terms.add(term); }
+        public void insert(CatalogEntryRepository.GlossaryTerms.Term term,
+                           long actorId, Instant occurredAt) { terms.add(term); }
 
         @Override
-        public TermSearch listTerms(long projectId, String sourceLocale, String targetLocale,
-                                    int offset, int limit) {
+        public CatalogEntryRepository.GlossaryTerms.TermSearch list(
+                long projectId, String sourceLocale, String targetLocale, int offset, int limit) {
             var matching = terms.stream().filter(term -> term.projectId() == projectId
                     && term.sourceLocale().equals(sourceLocale)
                     && term.targetLocale().equals(targetLocale)).toList();
-            return new TermSearch(matching.stream().skip(offset).limit(limit).toList(), matching.size());
+            return new CatalogEntryRepository.GlossaryTerms.TermSearch(
+                    matching.stream().skip(offset).limit(limit).toList(), matching.size());
         }
 
         @Override
-        public List<Term> matchingTerms(long projectId, String sourceLocale, String targetLocale,
-                                        String sourceText, int limit) {
+        public List<CatalogEntryRepository.GlossaryTerms.Term> matching(
+                long projectId, String sourceLocale, String targetLocale, String sourceText, int limit) {
             var lower = sourceText.toLowerCase(java.util.Locale.ROOT);
             return terms.stream().filter(term -> term.projectId() == projectId
                     && term.sourceLocale().equals(sourceLocale) && term.targetLocale().equals(targetLocale)
@@ -333,7 +337,7 @@ class CatalogEntryApplicationServiceTest {
         }
 
         @Override
-        public boolean archiveTerm(long projectId, long termId, Instant occurredAt) {
+        public boolean archive(long projectId, long termId, Instant occurredAt) {
             return terms.removeIf(term -> term.projectId() == projectId && term.id() == termId);
         }
 

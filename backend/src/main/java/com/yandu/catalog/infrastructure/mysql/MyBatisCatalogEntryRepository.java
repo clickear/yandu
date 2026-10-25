@@ -10,7 +10,8 @@ import java.util.function.LongSupplier;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public class MyBatisCatalogEntryRepository implements CatalogEntryRepository {
+public class MyBatisCatalogEntryRepository implements CatalogEntryRepository,
+        CatalogEntryRepository.GlossaryTerms {
 
     private final CatalogEntryMapper entries;
     private final SourceRevisionMapper revisions;
@@ -46,29 +47,30 @@ public class MyBatisCatalogEntryRepository implements CatalogEntryRepository {
     }
 
     @Override
-    public void insertTerm(Term term, long actorId, Instant occurredAt) {
+    public void insert(CatalogEntryRepository.GlossaryTerms.Term term, long actorId, Instant occurredAt) {
         entries.insertTerm(term.id(), term.projectId(), term.sourceLocale(), term.targetLocale(),
                 term.sourceTerm(), term.sourceTerm().toLowerCase(java.util.Locale.ROOT),
                 term.targetTerm(), term.note(), actorId, occurredAt);
     }
 
     @Override
-    public TermSearch listTerms(long projectId, String sourceLocale, String targetLocale,
-                                int offset, int limit) {
+    public CatalogEntryRepository.GlossaryTerms.TermSearch list(
+            long projectId, String sourceLocale, String targetLocale, int offset, int limit) {
         var items = entries.listTerms(projectId, sourceLocale, targetLocale, offset, limit).stream()
                 .map(this::toTerm).toList();
-        return new TermSearch(items, entries.countTerms(projectId, sourceLocale, targetLocale));
+        return new CatalogEntryRepository.GlossaryTerms.TermSearch(
+                items, entries.countTerms(projectId, sourceLocale, targetLocale));
     }
 
     @Override
-    public List<Term> matchingTerms(long projectId, String sourceLocale, String targetLocale,
-                                    String sourceText, int limit) {
+    public List<CatalogEntryRepository.GlossaryTerms.Term> matching(
+            long projectId, String sourceLocale, String targetLocale, String sourceText, int limit) {
         return entries.matchingTerms(projectId, sourceLocale, targetLocale, sourceText, limit)
                 .stream().map(this::toTerm).toList();
     }
 
     @Override
-    public boolean archiveTerm(long projectId, long termId, Instant occurredAt) {
+    public boolean archive(long projectId, long termId, Instant occurredAt) {
         return entries.archiveTerm(projectId, termId, occurredAt) == 1;
     }
 
@@ -140,8 +142,8 @@ public class MyBatisCatalogEntryRepository implements CatalogEntryRepository {
                 row.getSourceText(), row.getSourceRevision(), row.getVersion());
     }
 
-    private Term toTerm(CatalogEntryMapper.GlossaryTermRow row) {
-        return new Term(row.getId(), row.getProjectId(), row.getSourceLocale(),
+    private CatalogEntryRepository.GlossaryTerms.Term toTerm(CatalogEntryMapper.GlossaryTermRow row) {
+        return new CatalogEntryRepository.GlossaryTerms.Term(row.getId(), row.getProjectId(), row.getSourceLocale(),
                 row.getTargetLocale(), row.getSourceTerm(), row.getTargetTerm(),
                 row.getNote(), row.getCreatedAt());
     }
