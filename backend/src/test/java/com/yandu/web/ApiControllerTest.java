@@ -64,6 +64,12 @@ class ApiControllerTest {
     }
 
     @Test
+    void healthProbePathDoesNotRequireBearerIdentity() throws Exception {
+        mvc.perform(get("/actuator/health/readiness"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void projectCreationUsesTheAuthenticatedActorAndReturnsStringIds() throws Exception {
         given(actors.resolve(any())).willReturn(101L);
         given(workspace.create(any())).willReturn(new WorkspaceApplicationService.ProjectView(

@@ -23,6 +23,22 @@ spring:
           audiences:
             - ${YANDU_OIDC_AUDIENCE}
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+        add-additional-paths: true
+      show-details: never
+      show-components: never
+      group:
+        readiness:
+          include: readinessState,db
+
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true

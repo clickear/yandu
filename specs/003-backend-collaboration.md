@@ -37,7 +37,7 @@ Spring Boot、Spring Modulith 与 Spring Security 的选择依据及其职责边
 
 ## 当前后端实现范围
 
-当前代码建立了通用 OIDC JWT 身份解析、项目成员角色授权、Workspace、Catalog、Translation、Import、Release 和 AuditLog 模块及 `/api/v1` REST API。前端支持显式 API 模式、OIDC 登录、项目与成员管理、分页译文加载、服务端保存/送审/审核、失败草稿恢复、源文修改/历史/归档、项目术语管理与翻译记忆建议、JSON 差异预览与异步导入、JSON/Java Properties 发布下载；未配置服务端时保留本地原型。仍缺少完整质量规则/模板格式支持、本地数据迁移包和正式故障恢复演练。真实 MySQL 8 集成迁移和端到端业务链尚未验证。租户模式和 Outbox 本期不实现。
+当前代码建立了通用 OIDC JWT 身份解析、项目成员角色授权、Workspace、Catalog、Translation、Import、Release 和 AuditLog 模块及 `/api/v1` REST API。前端支持显式 API 模式、OIDC 登录、项目与成员管理、分页译文加载、服务端保存/送审/审核、失败草稿恢复、源文修改/历史/归档、项目术语管理与翻译记忆建议、JSON 差异预览与异步导入、JSON/Java Properties 发布下载；未配置服务端时保留本地原型。服务端提供公开的 liveness/readiness 健康探针，readiness 检查 MySQL 连通性且不公开组件详情。仍缺少完整质量规则/模板格式支持、本地数据迁移包和正式故障恢复演练。真实 MySQL 8 集成迁移和端到端业务链尚未验证。租户模式和 Outbox 本期不实现。
 
 工程取舍：优先沿现有模块扩展，不为单一小操作拆出一组类型或单独测试类。用例验证按大模块集中执行；小改动先做编译和差异检查，避免频繁运行全套测试。
 
