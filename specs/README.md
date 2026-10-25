@@ -6,6 +6,8 @@
 | ----------------------------------- | ------------------ | ---------------------------------- |
 | [001](001-translation-workspace.md) | 本地翻译工作台原型 | 本次范围，用户确认默认方案         |
 | [002](002-brand-assets.md)          | 流动 Y 品牌资产    | 本次范围，文字方向已确认，矢量重建 |
-| [003](003-backend-collaboration.md) | 后端与团队协作     | 未来草案，未实施                   |
+| [003](003-backend-collaboration.md) | 后端与团队协作     | DDD 技术设计与服务端实现进行中；MySQL 8.0、MyBatis-Plus、数字 ID、本期不做租户和 Outbox 已确认 |
 
 来源：关联对话「创建翻译中心仓库」，可读取消息明确采用流动 Y、电光紫、橙色与深墨蓝，并要求项目初始化、spec 对应 plan 和仓库内常用规格 Logo。工具未提供该对话中的原图或额外功能 spec。2026-10-25 本轮用户明确选择 React + TypeScript、本地保存、项目 / 语言 / 条目 / 审核 / JSON 导入导出的默认原型范围。这里没有把推定需求标记为历史已确认规格。
+
+Spec 003 的 DDD 技术方案见[详细设计文档](../docs/ddd-technical-design.md)。当前工程基线为 Java 21、Spring Boot、Spring Modulith 和 MyBatis-Plus；OIDC 提供方与部署配置仍由环境提供。实现按业务大模块集中验证，不因小改动新增独立测试类。
