@@ -36,6 +36,18 @@ public interface CatalogEntryMapper extends BaseMapper<CatalogEntryMapper.Catalo
                    created_at, updated_at
               FROM catalog_entries
              WHERE project_id = #{projectId}
+               AND id = #{entryId}
+               AND status = 'ACTIVE'
+            """)
+    CatalogEntryRow findActive(@Param("projectId") long projectId,
+                               @Param("entryId") long entryId);
+
+    @Select("""
+            SELECT id, project_id, namespace_id, source_locale, entry_key,
+                   source_text, source_revision, version, status, created_by, updated_by,
+                   created_at, updated_at
+              FROM catalog_entries
+             WHERE project_id = #{projectId}
                AND namespace_id = #{namespaceId}
                AND status = 'ACTIVE'
                AND (#{keyword} IS NULL OR entry_key LIKE CONCAT('%', #{keyword}, '%'))

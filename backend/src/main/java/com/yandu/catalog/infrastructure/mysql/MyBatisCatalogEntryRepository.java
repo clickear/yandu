@@ -32,6 +32,12 @@ public class MyBatisCatalogEntryRepository implements CatalogEntryRepository {
     }
 
     @Override
+    public Optional<CatalogEntry> findForRead(long projectId, long entryId) {
+        var row = entries.findActive(projectId, entryId);
+        return Optional.ofNullable(row).map(this::toDomain);
+    }
+
+    @Override
     public List<CatalogEntry> search(long projectId, long namespaceId, String keyword,
                                      int offset, int limit) {
         return entries.searchActive(projectId, namespaceId, keyword, offset, limit).stream()

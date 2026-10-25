@@ -86,7 +86,7 @@ public class CatalogEntryApplicationService {
     @Transactional(readOnly = true)
     public long currentSourceRevision(long actorId, long projectId, long entryId) {
         accessPolicy.requireCanReadCatalog(actorId, projectId);
-        return entries.findForSourceEdit(projectId, entryId)
+        return entries.findForRead(projectId, entryId)
                 .orElseThrow(() -> new CatalogEntryNotFoundException(entryId))
                 .sourceRevision();
     }
@@ -94,7 +94,7 @@ public class CatalogEntryApplicationService {
     @Transactional(readOnly = true)
     public EntryView get(long actorId, long projectId, long entryId) {
         accessPolicy.requireCanReadCatalog(actorId, projectId);
-        return entries.findForSourceEdit(projectId, entryId)
+        return entries.findForRead(projectId, entryId)
                 .map(entry -> EntryView.from(entry, false))
                 .orElseThrow(() -> new CatalogEntryNotFoundException(entryId));
     }
@@ -113,7 +113,7 @@ public class CatalogEntryApplicationService {
     @Transactional(readOnly = true)
     public List<RevisionView> history(ReadHistory query) {
         accessPolicy.requireCanReadCatalog(query.actorId(), query.projectId());
-        entries.findForSourceEdit(query.projectId(), query.entryId())
+        entries.findForRead(query.projectId(), query.entryId())
                 .orElseThrow(() -> new CatalogEntryNotFoundException(query.entryId()));
         return entries.history(query.projectId(), query.entryId()).stream()
                 .map(revision -> new RevisionView(Long.toString(revision.id()),

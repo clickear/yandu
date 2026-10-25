@@ -156,6 +156,20 @@ class CatalogEntryApplicationServiceTest {
     }
 
     @Test
+    void readOnlyCatalogQueriesDoNotUseTheLockingRead() {
+        var repository = existingEntry();
+        repository.history.add(new CatalogEntryRepository.RevisionSnapshot(
+                501L, 101L, 1, "Sign in", ACTOR, NOW));
+        var service = service(repository, new RecordingAccessPolicy());
+
+        service.currentSourceRevision(ACTOR, PROJECT, 101L);
+        service.get(ACTOR, PROJECT, 101L);
+        service.history(new CatalogEntryApplicationService.ReadHistory(ACTOR, PROJECT, 101L));
+
+        assertEquals(0, repository.lockingReads);
+    }
+
+    @Test
     void archiveChecksProjectAccessAndDoesNotRemoveSourceHistory() {
         var repository = existingEntry();
         repository.history.add(new CatalogEntryRepository.RevisionSnapshot(
@@ -274,9 +288,16 @@ class CatalogEntryApplicationServiceTest {
         private final ArrayList<RevisionSnapshot> history = new ArrayList<>();
         private final ArrayList<Long> archived = new ArrayList<>();
         private final ArrayList<Term> terms = new ArrayList<>();
+        private int lockingReads;
 
         @Override
         public Optional<CatalogEntry> findForSourceEdit(long projectId, long entryId) {
+            lockingReads++;
+            return Optional.ofNullable(entries.get(entryId));
+        }
+
+        @Override
+        public Optional<CatalogEntry> findForRead(long projectId, long entryId) {
             return Optional.ofNullable(entries.get(entryId));
         }
 

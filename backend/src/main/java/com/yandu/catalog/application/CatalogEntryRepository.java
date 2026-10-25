@@ -11,6 +11,8 @@ public interface CatalogEntryRepository {
 
     Optional<CatalogEntry> findForSourceEdit(long projectId, long entryId);
 
+    Optional<CatalogEntry> findForRead(long projectId, long entryId);
+
     List<CatalogEntry> search(
             long projectId, long namespaceId, String keyword, int offset, int limit);
 
