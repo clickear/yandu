@@ -17,6 +17,9 @@ export interface Entry {
   key: string
   source: string
   translations: Record<string, Translation>
+  sourceRevision?: number
+  versions?: Record<string, number | null>
+  workflowStatuses?: Record<string, string | null>
 }
 export interface Project {
   id: string
@@ -25,6 +28,7 @@ export interface Project {
   sourceLanguage: string
   targetLanguages: string[]
   entries: Entry[]
+  defaultNamespaceId?: string
 }
 export interface Workspace {
   version: 1
@@ -34,7 +38,20 @@ export const STORAGE_KEY = 'yandu.workspace.v1'
 export const MAX_IMPORT_BYTES = 1024 * 1024
 export const languageName = (code: string) => LANGUAGES.find((l) => l.code === code)?.name ?? code
 export const languageShort = (code: string) => LANGUAGES.find((l) => l.code === code)?.short ?? code
-export const uid = () => crypto.randomUUID()
+const localWorkerId = crypto.getRandomValues(new Uint16Array(1))[0] & 0x3ff
+const localEpoch = Date.UTC(2024, 0, 1)
+let lastLocalTimestamp = 0
+let localSequence = 0
+export const uid = () => {
+  let timestamp = Math.max(Date.now() - localEpoch, lastLocalTimestamp)
+  localSequence = timestamp === lastLocalTimestamp ? localSequence + 1 : 0
+  if (localSequence > 0xfff) {
+    timestamp = lastLocalTimestamp + 1
+    localSequence = 0
+  }
+  lastLocalTimestamp = timestamp
+  return ((BigInt(timestamp) << 22n) | (BigInt(localWorkerId) << 12n) | BigInt(localSequence)).toString()
+}
 const validLocale = (locale: unknown): locale is string =>
   typeof locale === 'string' && LANGUAGES.some((l) => l.code === locale)
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -77,6 +94,25 @@ export function addEntry(project: Project, key: string, source: string): Project
   if (project.entries.some((entry) => entry.key === key))
     throw new Error('键名已存在，请使用不同的键名。')
   return { ...project, entries: [{ id: uid(), key, source, translations: {} }, ...project.entries] }
+}
+
+export function updateSource(project: Project, entryId: string, source: string): Project {
+  if (!source.trim()) throw new Error('请填写源文案。')
+  if (source.length > 16000) throw new Error('源文案不能超过 16,000 个字符。')
+  const entry = project.entries.find((item) => item.id === entryId)
+  if (!entry) throw new Error('翻译条目不存在。')
+  if (entry.source === source) return project
+  return {
+    ...project,
+    entries: project.entries.map((item) => item.id !== entryId ? item : {
+      ...item,
+      source,
+      sourceRevision: (item.sourceRevision ?? 1) + 1,
+      translations: Object.fromEntries(Object.entries(item.translations).map(([locale, translation]) => [
+        locale, { ...translation, status: 'draft' as const },
+      ])),
+    }),
+  }
 }
 
 export function saveTranslation(
@@ -189,6 +225,39 @@ export function exportMessages(project: Project, locale: string): string {
       2,
     ) + '\n'
   )
+}
+
+export function exportProperties(project: Project, locale: string): string {
+  if (locale !== project.sourceLanguage && !project.targetLanguages.includes(locale))
+    throw new Error('导出语言不存在。')
+  const escape = (value: string, key: boolean) => {
+    let result = ''
+    let leadingValueSpace = !key
+    for (let i = 0; i < value.length; i += 1) {
+      const char = value[i]
+      if (char === ' ' && (key || leadingValueSpace)) result += '\\ '
+      else if (char === '\\') result += '\\\\'
+      else if (char === '\t') result += '\\t'
+      else if (char === '\n') result += '\\n'
+      else if (char === '\r') result += '\\r'
+      else if (char === '\f') result += '\\f'
+      else if (key && '=:# !'.includes(char)) result += `\\${char}`
+      else {
+        const code = char.charCodeAt(0)
+        result += code < 0x20 || code > 0x7e
+          ? `\\u${code.toString(16).toUpperCase().padStart(4, '0')}`
+          : char
+      }
+      if (!key && char !== ' ') leadingValueSpace = false
+    }
+    return result
+  }
+  return project.entries
+    .map((entry) => [entry.key, locale === project.sourceLanguage
+      ? entry.source : (entry.translations[locale]?.value ?? '')] as const)
+    .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+    .map(([key, value]) => `${escape(key, true)}=${escape(value, false)}\n`)
+    .join('')
 }
 
 export function parseWorkspace(text: string): Workspace {

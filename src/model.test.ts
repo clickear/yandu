@@ -4,6 +4,7 @@ import {
   addLanguage,
   createProject,
   exportMessages,
+  exportProperties,
   importMessages,
   parseWorkspace,
   progress,
@@ -115,6 +116,14 @@ describe('JSON import/export', () => {
     expect(exportMessages(updated, 'en-US')).toBe(json)
     expect(JSON.parse(exportMessages(p, 'zh-CN'))['common.save']).toBe('保存更改')
     expect(() => exportMessages(p, 'fr-FR')).toThrow()
+  })
+  it('exports Java Properties as sorted ASCII with escaped Unicode', () => {
+    const p = project()
+    const output = exportProperties(p, 'zh-CN')
+    expect(output).toContain('\\u')
+    expect(output.endsWith('\n')).toBe(true)
+    expect([...output].every((char) => char.charCodeAt(0) <= 0x7f)).toBe(true)
+    expect(() => exportProperties(p, 'fr-FR')).toThrow()
   })
 })
 

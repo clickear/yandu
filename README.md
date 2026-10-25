@@ -2,11 +2,11 @@
 
 <p align="center">让每一种语言，准确抵达。</p>
 
-言渡是一个翻译管理平台。本仓库已初始化为 **React + TypeScript + Vite 的本地工作台原型**，使用已确认的「流动 Y」紫橙品牌方向。
+言渡是一个翻译管理平台。本仓库包含 **React + TypeScript + Vite 工作台**和可选的 Java 服务端；默认仍以浏览器本地模式运行，配置 OIDC 与 API 后可连接团队服务端。品牌沿用已确认的「流动 Y」紫橙方向。
 
 ## 执行目标
 
-后续开发、评审与商业试用验收统一参考 [产品目标与交付标准](GOAL.md)。当前仍为本地原型，服务端实施先细化 spec 003。
+后续开发、评审与商业试用验收统一参考 [产品目标与交付标准](GOAL.md)。服务端技术和产品边界见 [spec 003](specs/003-backend-collaboration.md)。
 
 ## 运行
 
@@ -17,7 +17,9 @@ npm ci
 npm run dev
 ```
 
-默认端口为 5173；`npm run dev -- --host 127.0.0.1` 可限制为仅本机访问。云环境如遇 npm 默认缓存目录不可写，在命令前加 `NPM_CONFIG_CACHE=/workspace/.cache/npm`。无需 API Key、数据库或后端服务。
+默认端口为 5173；`npm run dev -- --host 127.0.0.1` 可限制为仅本机访问。云环境如遇 npm 默认缓存目录不可写，在命令前加 `NPM_CONFIG_CACHE=/workspace/.cache/npm`。未配置 API 时无需数据库或后端服务。
+
+要连接服务端，复制 `.env.example` 为 `.env`，配置 `VITE_YANDU_API_URL`、OIDC authority 和公开 SPA client ID；按 [后端说明](backend/README.md) 配置 MySQL 8.0、issuer、audience 和 CORS 后启动服务。OIDC 回调 URI 必须在身份提供方登记。服务端模式只显示 API 数据，不使用本地示例项目。
 
 ## 已实现
 
@@ -25,11 +27,12 @@ npm run dev
 - 添加唯一文案键；按目标语言编辑译文、标记审核、统计进度。
 - 按键名、源文案、译文搜索，按未翻译 / 待审核 / 已审核筛选。
 - 导入源语言或目标语言的扁平字符串 JSON；按同名键合并，不删除其他条目。
-- 导出当前目标语言 JSON，未翻译条目导出为空字符串。
+- 导出当前语言 JSON 或 Java Properties，未翻译条目导出为空值；Properties 可由 Java `Properties.load(InputStream)` 读取。
 - 浏览器 `localStorage` 自动保存；损坏或不兼容的数据不会自动覆盖。
 - 中英日示例数据、桌面和移动布局、键盘可操作弹窗。
+- 可选的 OIDC 服务端模式：成员角色、源文版本与历史、译文送审/审校、JSON 差异预览与异步导入、审核通过后的 JSON/Properties 发布下载。
 
-这是单浏览器原型：数据不跨设备同步，不包含登录、后端、多人协作、机器翻译或正式发布服务。JSON 仅包含文案，不包含审核状态；它不是完整工作空间备份。源文案可通过源语言 JSON 更新；重命名、删除、完整备份等见后续计划。
+本地模式的数据不跨设备同步；OIDC、团队协作、服务端项目与分页译文、服务端导入预览/任务、审核送审和 JSON 发布下载需要配置后端。机器翻译尚未接入。JSON 仅包含文案，不包含审核状态；它不是完整工作空间备份。源文案可通过源语言 JSON 更新；重命名、删除、完整备份等见后续计划。
 
 导入格式：
 
