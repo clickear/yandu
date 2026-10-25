@@ -103,11 +103,10 @@ public class CatalogEntryApplicationService {
     public EntryPage search(SearchEntries query) {
         accessPolicy.requireCanReadCatalog(query.actorId(), query.projectId());
         int offset = Math.multiplyExact(query.page() - 1, query.pageSize());
-        var entriesPage = entries.search(query.projectId(), query.namespaceId(),
+        var result = entries.search(query.projectId(), query.namespaceId(),
                 query.keyword(), offset, query.pageSize());
-        var total = entries.count(query.projectId(), query.namespaceId(), query.keyword());
-        return new EntryPage(query.page(), query.pageSize(), total,
-                entriesPage.stream().map(entry -> EntryView.from(entry, false)).toList());
+        return new EntryPage(query.page(), query.pageSize(), result.total(),
+                result.items().stream().map(entry -> EntryView.from(entry, false)).toList());
     }
 
     @Transactional(readOnly = true)
@@ -161,10 +160,10 @@ public class CatalogEntryApplicationService {
         var targetLocale = WorkspaceApplicationService.normalizeLocale(query.targetLocale());
         requireTermLocales(project, sourceLocale, targetLocale);
         var offset = Math.multiplyExact(query.page() - 1, query.pageSize());
-        var terms = entries.listTerms(query.projectId(), sourceLocale, targetLocale,
-                offset, query.pageSize()).stream().map(CatalogEntryApplicationService::termView).toList();
-        return new TermPage(query.page(), query.pageSize(),
-                entries.countTerms(query.projectId(), sourceLocale, targetLocale), terms);
+        var result = entries.listTerms(query.projectId(), sourceLocale, targetLocale,
+                offset, query.pageSize());
+        var terms = result.items().stream().map(CatalogEntryApplicationService::termView).toList();
+        return new TermPage(query.page(), query.pageSize(), result.total(), terms);
     }
 
     @Transactional

@@ -13,17 +13,12 @@ public interface CatalogEntryRepository {
 
     Optional<CatalogEntry> findForRead(long projectId, long entryId);
 
-    List<CatalogEntry> search(
-            long projectId, long namespaceId, String keyword, int offset, int limit);
-
-    long count(long projectId, long namespaceId, String keyword);
+    EntrySearch search(long projectId, long namespaceId, String keyword, int offset, int limit);
 
     void insertTerm(Term term, long actorId, Instant occurredAt);
 
-    List<Term> listTerms(long projectId, String sourceLocale, String targetLocale,
+    TermSearch listTerms(long projectId, String sourceLocale, String targetLocale,
                          int offset, int limit);
-
-    long countTerms(long projectId, String sourceLocale, String targetLocale);
 
     List<Term> matchingTerms(long projectId, String sourceLocale, String targetLocale,
                              String sourceText, int limit);
@@ -51,6 +46,10 @@ public interface CatalogEntryRepository {
             long id, long entryId, long sourceRevision, String sourceText,
             long changedBy, Instant createdAt) {
     }
+
+    record EntrySearch(List<CatalogEntry> items, long total) { }
+
+    record TermSearch(List<Term> items, long total) { }
 
     record Term(long id, long projectId, String sourceLocale, String targetLocale,
                 String sourceTerm, String targetTerm, String note, Instant createdAt) { }

@@ -26,34 +26,17 @@ public class MyBatisTranslationRepository implements TranslationRepository {
     }
 
     @Override
-    public List<WorkspaceEntry> searchWorkspace(long projectId, long namespaceId, String locale,
-                                                String status, String keyword, int offset, int limit) {
-        return mapper.searchWorkspace(projectId, namespaceId, locale, status, keyword, offset, limit)
+    public WorkspaceSearch searchWorkspace(long projectId, long namespaceId, String locale,
+                                           String status, String keyword, int offset, int limit) {
+        var items = mapper.searchWorkspace(projectId, namespaceId, locale, status, keyword, offset, limit)
                 .stream().map(row -> new WorkspaceEntry(row.getEntryId(), row.getEntryKey(),
                         row.getSourceText(), row.getSourceRevision(), row.getId(), row.getValue(),
                         row.getStatus(), row.getVersion(), row.getBasedOnSourceRevision()))
                 .toList();
-    }
-
-    @Override
-    public long countWorkspace(long projectId, long namespaceId, String locale,
-                               String status, String keyword) {
-        return mapper.countWorkspace(projectId, namespaceId, locale, status, keyword);
-    }
-
-    @Override
-    public long countAllWorkspace(long projectId, long namespaceId) {
-        return mapper.countAllWorkspace(projectId, namespaceId);
-    }
-
-    @Override
-    public long countTranslated(long projectId, long namespaceId, String locale) {
-        return mapper.countTranslated(projectId, namespaceId, locale);
-    }
-
-    @Override
-    public long countReviewed(long projectId, long namespaceId, String locale) {
-        return mapper.countReviewed(projectId, namespaceId, locale);
+        var statistics = mapper.workspaceStatistics(projectId, namespaceId, locale);
+        return new WorkspaceSearch(items,
+                mapper.countWorkspace(projectId, namespaceId, locale, status, keyword),
+                statistics.getTotalEntries(), statistics.getTranslated(), statistics.getReviewed());
     }
 
     @Override

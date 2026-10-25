@@ -10,17 +10,8 @@ public interface TranslationRepository {
 
     Optional<Translation> find(long projectId, long entryId, String locale);
 
-    List<WorkspaceEntry> searchWorkspace(long projectId, long namespaceId, String locale,
-                                         String status, String keyword, int offset, int limit);
-
-    long countWorkspace(long projectId, long namespaceId, String locale, String status,
-                        String keyword);
-
-    long countAllWorkspace(long projectId, long namespaceId);
-
-    long countTranslated(long projectId, long namespaceId, String locale);
-
-    long countReviewed(long projectId, long namespaceId, String locale);
+    WorkspaceSearch searchWorkspace(long projectId, long namespaceId, String locale,
+                                    String status, String keyword, int offset, int limit);
 
     List<MemoryMatch> findApprovedMatches(long projectId, long excludedEntryId, String locale,
                                           String sourceText, int limit);
@@ -40,6 +31,9 @@ public interface TranslationRepository {
     record WorkspaceEntry(long entryId, String key, String sourceText, long sourceRevision,
                           Long translationId, String translation, String status,
                           Long translationVersion, Long translationSourceRevision) { }
+
+    record WorkspaceSearch(List<WorkspaceEntry> items, long filteredTotal, long totalEntries,
+                           long translated, long reviewed) { }
 
     record MemoryMatch(long entryId, String key, String sourceText, String translation,
                        String locale, long translationVersion) { }

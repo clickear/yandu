@@ -102,8 +102,9 @@ public class TranslationApplicationService {
         var locale = Translation.normalizeLocale(query.locale());
         requireTargetLocale(query.actorId(), query.projectId(), locale);
         int offset = Math.multiplyExact(query.page() - 1, query.pageSize());
-        var items = translations.searchWorkspace(query.projectId(), query.namespaceId(), locale,
-                query.status(), query.keyword(), offset, query.pageSize()).stream()
+        var result = translations.searchWorkspace(query.projectId(), query.namespaceId(), locale,
+                query.status(), query.keyword(), offset, query.pageSize());
+        var items = result.items().stream()
                 .map(entry -> new WorkspaceEntryView(Long.toString(entry.entryId()), entry.key(),
                         entry.sourceText(), entry.sourceRevision(),
                         entry.translationId() == null ? null : Long.toString(entry.translationId()),
@@ -112,12 +113,8 @@ public class TranslationApplicationService {
                         entry.translationSourceRevision() != null
                                 && entry.translationSourceRevision() < entry.sourceRevision()))
                 .toList();
-        return new WorkspacePage(query.page(), query.pageSize(),
-                translations.countWorkspace(query.projectId(), query.namespaceId(), locale,
-                        query.status(), query.keyword()),
-                translations.countAllWorkspace(query.projectId(), query.namespaceId()),
-                translations.countTranslated(query.projectId(), query.namespaceId(), locale),
-                translations.countReviewed(query.projectId(), query.namespaceId(), locale), items);
+        return new WorkspacePage(query.page(), query.pageSize(), result.filteredTotal(),
+                result.totalEntries(), result.translated(), result.reviewed(), items);
     }
 
     @Transactional(readOnly = true)

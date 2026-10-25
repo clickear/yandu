@@ -302,33 +302,24 @@ class CatalogEntryApplicationServiceTest {
         }
 
         @Override
-        public List<CatalogEntry> search(long projectId, long namespaceId, String keyword,
-                                         int offset, int limit) {
-            return entries.values().stream()
+        public EntrySearch search(long projectId, long namespaceId, String keyword,
+                                  int offset, int limit) {
+            var matching = entries.values().stream()
                     .filter(entry -> entry.projectId() == projectId)
-                    .filter(entry -> keyword == null || entry.key().contains(keyword))
-                    .skip(offset).limit(limit).toList();
-        }
-
-        @Override
-        public long count(long projectId, long namespaceId, String keyword) {
-            return search(projectId, namespaceId, keyword, 0, Integer.MAX_VALUE).size();
+                    .filter(entry -> keyword == null || entry.key().contains(keyword)).toList();
+            return new EntrySearch(matching.stream().skip(offset).limit(limit).toList(), matching.size());
         }
 
         @Override
         public void insertTerm(Term term, long actorId, Instant occurredAt) { terms.add(term); }
 
         @Override
-        public List<Term> listTerms(long projectId, String sourceLocale, String targetLocale,
+        public TermSearch listTerms(long projectId, String sourceLocale, String targetLocale,
                                     int offset, int limit) {
-            return terms.stream().filter(term -> term.projectId() == projectId
+            var matching = terms.stream().filter(term -> term.projectId() == projectId
                     && term.sourceLocale().equals(sourceLocale)
-                    && term.targetLocale().equals(targetLocale)).skip(offset).limit(limit).toList();
-        }
-
-        @Override
-        public long countTerms(long projectId, String sourceLocale, String targetLocale) {
-            return listTerms(projectId, sourceLocale, targetLocale, 0, Integer.MAX_VALUE).size();
+                    && term.targetLocale().equals(targetLocale)).toList();
+            return new TermSearch(matching.stream().skip(offset).limit(limit).toList(), matching.size());
         }
 
         @Override

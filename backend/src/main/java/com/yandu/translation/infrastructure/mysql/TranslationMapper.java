@@ -77,33 +77,18 @@ public interface TranslationMapper extends BaseMapper<TranslationMapper.Translat
                         @Param("keyword") String keyword);
 
     @Select("""
-            SELECT COUNT(*) FROM catalog_entries
-             WHERE project_id = #{projectId} AND namespace_id = #{namespaceId} AND status = 'ACTIVE'
-            """)
-    long countAllWorkspace(@Param("projectId") long projectId,
-                           @Param("namespaceId") long namespaceId);
-
-    @Select("""
-            SELECT COUNT(*) FROM catalog_entries e
-              JOIN translations t ON t.project_id = e.project_id AND t.entry_id = e.id
+            SELECT COUNT(e.id) AS total_entries,
+                   COALESCE(SUM(CASE WHEN t.value IS NOT NULL AND t.value <> '' THEN 1 ELSE 0 END), 0) AS translated,
+                   COALESCE(SUM(CASE WHEN t.status = 'APPROVED' AND t.value <> '' THEN 1 ELSE 0 END), 0) AS reviewed
+              FROM catalog_entries e
+              LEFT JOIN translations t ON t.project_id = e.project_id AND t.entry_id = e.id
                    AND t.target_locale = #{locale}
              WHERE e.project_id = #{projectId} AND e.namespace_id = #{namespaceId}
-               AND e.status = 'ACTIVE' AND t.value <> ''
+               AND e.status = 'ACTIVE'
             """)
-    long countTranslated(@Param("projectId") long projectId,
-                         @Param("namespaceId") long namespaceId,
-                         @Param("locale") String locale);
-
-    @Select("""
-            SELECT COUNT(*) FROM catalog_entries e
-              JOIN translations t ON t.project_id = e.project_id AND t.entry_id = e.id
-                   AND t.target_locale = #{locale} AND t.status = 'APPROVED'
-             WHERE e.project_id = #{projectId} AND e.namespace_id = #{namespaceId}
-               AND e.status = 'ACTIVE' AND t.value <> ''
-            """)
-    long countReviewed(@Param("projectId") long projectId,
-                       @Param("namespaceId") long namespaceId,
-                       @Param("locale") String locale);
+    WorkspaceStatisticsRow workspaceStatistics(@Param("projectId") long projectId,
+                                                @Param("namespaceId") long namespaceId,
+                                                @Param("locale") String locale);
 
     @Select("""
             SELECT e.id AS entry_id, e.entry_key, e.source_text,
@@ -214,5 +199,14 @@ public interface TranslationMapper extends BaseMapper<TranslationMapper.Translat
         private String entryKey;
         private String sourceText;
         private Long sourceRevision;
+    }
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    class WorkspaceStatisticsRow {
+        private long totalEntries;
+        private long translated;
+        private long reviewed;
     }
 }

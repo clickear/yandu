@@ -38,15 +38,11 @@ public class MyBatisCatalogEntryRepository implements CatalogEntryRepository {
     }
 
     @Override
-    public List<CatalogEntry> search(long projectId, long namespaceId, String keyword,
-                                     int offset, int limit) {
-        return entries.searchActive(projectId, namespaceId, keyword, offset, limit).stream()
+    public EntrySearch search(long projectId, long namespaceId, String keyword,
+                              int offset, int limit) {
+        var items = entries.searchActive(projectId, namespaceId, keyword, offset, limit).stream()
                 .map(this::toDomain).toList();
-    }
-
-    @Override
-    public long count(long projectId, long namespaceId, String keyword) {
-        return entries.countActive(projectId, namespaceId, keyword);
+        return new EntrySearch(items, entries.countActive(projectId, namespaceId, keyword));
     }
 
     @Override
@@ -57,15 +53,11 @@ public class MyBatisCatalogEntryRepository implements CatalogEntryRepository {
     }
 
     @Override
-    public List<Term> listTerms(long projectId, String sourceLocale, String targetLocale,
+    public TermSearch listTerms(long projectId, String sourceLocale, String targetLocale,
                                 int offset, int limit) {
-        return entries.listTerms(projectId, sourceLocale, targetLocale, offset, limit).stream()
+        var items = entries.listTerms(projectId, sourceLocale, targetLocale, offset, limit).stream()
                 .map(this::toTerm).toList();
-    }
-
-    @Override
-    public long countTerms(long projectId, String sourceLocale, String targetLocale) {
-        return entries.countTerms(projectId, sourceLocale, targetLocale);
+        return new TermSearch(items, entries.countTerms(projectId, sourceLocale, targetLocale));
     }
 
     @Override
