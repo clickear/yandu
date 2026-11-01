@@ -37,7 +37,6 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -424,11 +423,10 @@ class MySql8MigrationsTest {
         assertEquals(2, saved.getBody().path("version").asInt());
         String staleEdit = json.writeValueAsString(java.util.Map.of(
                 "expectedVersion", 1, "basedOnSourceRevision", 1, "value", "stale overwrite"));
-        HttpClientErrorException staleConflict = assertThrows(HttpClientErrorException.class,
-                () -> http.exchange(translationEndpoint, HttpMethod.PUT,
-                        new HttpEntity<>(staleEdit, headers), JsonNode.class));
+        ResponseEntity<JsonNode> staleConflict = http.exchange(translationEndpoint, HttpMethod.PUT,
+                new HttpEntity<>(staleEdit, headers), JsonNode.class);
         assertEquals(HttpStatus.CONFLICT, staleConflict.getStatusCode());
-        JsonNode conflictDetails = json.readTree(staleConflict.getResponseBodyAsString());
+        JsonNode conflictDetails = staleConflict.getBody();
         assertEquals(1, conflictDetails.path("expectedVersion").asInt());
         assertEquals(2, conflictDetails.path("actualVersion").asInt());
         ResponseEntity<JsonNode> unchangedAfterConflict = http.exchange(translationEndpoint,
