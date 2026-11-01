@@ -24,13 +24,23 @@ const userManager = backendEnabled && !backendConfigurationError
     })
   : undefined
 
+let sessionInitialization: Promise<Awaited<ReturnType<UserManager['getUser']>>> | null = null
+
 export async function initializeBackendSession() {
   if (!userManager) throw new Error(backendConfigurationError || '服务端认证尚未配置。')
-  if (window.location.pathname === new URL(callbackUrl).pathname) {
-    await userManager.signinRedirectCallback()
-    window.history.replaceState({}, document.title, '/')
+  if (!sessionInitialization) {
+    sessionInitialization = (async () => {
+      if (window.location.pathname === new URL(callbackUrl).pathname) {
+        await userManager.signinRedirectCallback()
+        window.history.replaceState({}, document.title, '/')
+      }
+      return userManager.getUser()
+    })().catch((error: unknown) => {
+      sessionInitialization = null
+      throw error
+    })
   }
-  return userManager.getUser()
+  return sessionInitialization
 }
 
 export async function signIn() {
