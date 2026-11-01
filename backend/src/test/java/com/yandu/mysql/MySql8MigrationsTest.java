@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yandu.imports.infrastructure.mysql.ImportMapper;
 import com.yandu.translation.infrastructure.mysql.MachineTranslationMapper;
 import com.yandu.translation.infrastructure.mysql.TranslationMapper;
@@ -16,10 +18,17 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 
 /** Runs the real Flyway chain against the MySQL 8.0 service used by CI. */
-@SpringBootTest(properties = {
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.security.oauth2.resourceserver.jwt.issuer-uri=https://issuer.example.test",
         "spring.security.oauth2.resourceserver.jwt.audiences=yandu-api"
 })
@@ -32,6 +41,9 @@ class MySql8MigrationsTest {
     @Autowired private MachineTranslationMapper machineTranslations;
     @Autowired private TranslationMapper translations;
     @Autowired private WorkspaceMapper workspace;
+    @Autowired private TestRestTemplate http;
+    @Autowired private ObjectMapper json;
+    @LocalServerPort private int port;
 
     @Test
     void migratesTheCurrentSchemaAndRetainsOperationalMetadata() throws Exception {
@@ -97,5 +109,57 @@ class MySql8MigrationsTest {
                 () -> policy.requireCanManageTranslation(actorId, projectId));
         assertThrows(AccessDeniedException.class,
                 () -> policy.requireCanPublish(actorId, projectId));
+    }
+
+    @Test
+    void consumerCanFetchPublishedSnapshotFromMysqlWithoutAuthentication() throws Exception {
+        long actorId = 920_000_000_000_001L;
+        long projectId = 920_000_000_000_002L;
+        long releaseId = 920_000_000_000_003L;
+        String content = "{\"welcome.title\":\"你好\"}\n";
+        String checksum = HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(content.getBytes(StandardCharsets.UTF_8)));
+
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO external_identities (user_id, issuer, subject, created_at)
+                    VALUES (920000000000001, 'https://issuer.example.test', 'translation-consumer', UTC_TIMESTAMP(6))
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO projects (id, owner_id, name, source_locale, version, status, created_at, updated_at)
+                    VALUES (920000000000002, 920000000000001, 'Consumer sync check', 'zh-CN', 1, 'ACTIVE',
+                            UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO project_languages (project_id, locale, created_at)
+                    VALUES (920000000000002, 'en-US', UTC_TIMESTAMP(6))
+                    """);
+            try (var insert = connection.prepareStatement("""
+                    INSERT INTO releases
+                      (id, project_id, locale, format, version_no, content, manifest_json,
+                       checksum_sha256, published_by, published_at)
+                    VALUES (?, ?, 'en-US', 'json-flat-v1', 1, ?, '[]', ?, ?, UTC_TIMESTAMP(6))
+                    """)) {
+                insert.setLong(1, releaseId);
+                insert.setLong(2, projectId);
+                insert.setString(3, content);
+                insert.setString(4, checksum);
+                insert.setLong(5, actorId);
+                insert.executeUpdate();
+            }
+        }
+
+        String baseUrl = "http://localhost:" + port + "/api/v1/public/projects/" + projectId
+                + "/translations/en-US/latest";
+        ResponseEntity<JsonNode> metadata = http.getForEntity(baseUrl, JsonNode.class);
+        assertEquals(HttpStatus.OK, metadata.getStatusCode());
+        assertEquals(Long.toString(releaseId), metadata.getBody().path("id").asText());
+        assertEquals(checksum, metadata.getBody().path("checksumSha256").asText());
+
+        ResponseEntity<String> snapshot = http.getForEntity(baseUrl + "/content", String.class);
+        assertEquals(HttpStatus.OK, snapshot.getStatusCode());
+        assertEquals(content, snapshot.getBody());
+        assertEquals(checksum, HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(snapshot.getBody().getBytes(StandardCharsets.UTF_8))));
     }
 }
