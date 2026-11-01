@@ -77,6 +77,23 @@ class ApiControllerTest {
     }
 
     @Test
+    void publishedTranslationConsumerApiIsPublicAndReturnsVerifiedSnapshot() throws Exception {
+        given(releases.latestPublished(1001L, "fr-FR", "json-flat-v1")).willReturn(
+                new ReleaseApplicationService.PublicReleaseMetadata("42", "1001", "fr-FR",
+                        "json-flat-v1", 7, "abc123", java.time.Instant.parse("2026-10-31T00:00:00Z")));
+        given(releases.downloadPublished(1001L, "fr-FR", "json-flat-v1", 42L))
+                .willReturn("{\"welcome\":\"Bonjour\"}");
+
+        mvc.perform(get("/api/v1/public/projects/1001/translations/fr-FR/latest"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.version").value(7))
+                .andExpect(jsonPath("$.checksumSha256").value("abc123"));
+        mvc.perform(get("/api/v1/public/projects/1001/translations/fr-FR/latest/content"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("{\"welcome\":\"Bonjour\"}"));
+    }
+
+    @Test
     void healthProbePathDoesNotRequireBearerIdentity() throws Exception {
         mvc.perform(get("/actuator/health/readiness"))
                 .andExpect(status().isNotFound());
@@ -259,6 +276,7 @@ class ApiControllerTest {
                 .andExpect(jsonPath("$.paths['/api/v1/projects/{projectId}/machine-translation-jobs'].post.parameters[?(@.name == 'Idempotency-Key')]").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/projects/{projectId}/machine-translation-jobs'].post.responses['503']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/projects/{projectId}/releases'].post.responses['202']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/public/projects/{projectId}/translations/{locale}/latest'].get.security").value(org.hamcrest.Matchers.empty()))
                 .andExpect(jsonPath("$.paths['/api/v1/project-migrations/previews'].post").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/projects/{projectId}/catalog/entries/{entryId}/translations/{locale}/review'].post").exists());
     }

@@ -65,6 +65,16 @@ public interface ReleaseMapper extends BaseMapper<ReleaseMapper.ReleaseRow> {
                             @Param("releaseId") long releaseId);
 
     @Select("""
+            SELECT id, project_id, locale, format, version_no, rollback_of_release_id,
+                   manifest_json, checksum_sha256, published_by, published_at
+              FROM releases
+             WHERE project_id = #{projectId} AND locale = #{locale} AND format = #{format}
+             ORDER BY version_no DESC, id DESC LIMIT 1
+            """)
+    ReleaseRow findLatestPublished(@Param("projectId") long projectId,
+                                   @Param("locale") String locale, @Param("format") String format);
+
+    @Select("""
             <script>
             SELECT id, project_id, locale, format, version_no, rollback_of_release_id,
                    content, manifest_json, checksum_sha256,

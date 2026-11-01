@@ -265,6 +265,31 @@ public class ReleaseApplicationService {
                 release.entryCount(), release.publishedBy(), release.publishedAt());
     }
 
+    /** Public consumer API exposes immutable snapshots that have already been published. */
+    @Transactional(readOnly = true)
+    public PublicReleaseMetadata latestPublished(long projectId, String locale, String format) {
+        var normalizedLocale = WorkspaceApplicationService.normalizeLocale(locale);
+        var normalizedFormat = normalizeFormat(format);
+        return releases.latestPublished(projectId, normalizedLocale, normalizedFormat)
+                .map(snapshot -> new PublicReleaseMetadata(Long.toString(snapshot.id()),
+                        Long.toString(snapshot.projectId()), snapshot.locale(), snapshot.format(),
+                        snapshot.version(), snapshot.checksum(), snapshot.publishedAt()))
+                .orElseThrow(() -> new ReleaseNotFoundException(
+                        "No published release exists for the requested project, locale and format"));
+    }
+
+    @Transactional(readOnly = true)
+    public String downloadPublished(long projectId, String locale, String format, long releaseId) {
+        var normalizedLocale = WorkspaceApplicationService.normalizeLocale(locale);
+        var normalizedFormat = normalizeFormat(format);
+        var snapshot = releases.find(projectId, releaseId)
+                .filter(candidate -> candidate.locale().equals(normalizedLocale)
+                        && candidate.format().equals(normalizedFormat))
+                .orElseThrow(() -> new ReleaseNotFoundException(releaseId));
+        verify(snapshot);
+        return snapshot.content();
+    }
+
     @Transactional(readOnly = true)
     public ReleaseView get(long actorId, long projectId, long releaseId) {
         access.requireCanReadProject(actorId, projectId);
@@ -423,6 +448,10 @@ public class ReleaseApplicationService {
                                  String rollbackOfReleaseId, String checksumSha256, int entryCount,
                                  String publishedBy, java.time.Instant publishedAt) { }
 
+    public record PublicReleaseMetadata(String id, String projectId, String locale, String format,
+                                        long version, String checksumSha256,
+                                        java.time.Instant publishedAt) { }
+
     public record ReleaseJobView(String id, String projectId, String locale, String format,
                                  String status, String releaseId, String error,
                                  java.time.Instant createdAt, java.time.Instant updatedAt) { }
@@ -446,6 +475,7 @@ public class ReleaseApplicationService {
         public ReleaseNotFoundException(long releaseId) {
             super("Release not found: " + releaseId);
         }
+        public ReleaseNotFoundException(String message) { super(message); }
     }
 
     public static final class ReleaseJobNotFoundException extends RuntimeException {

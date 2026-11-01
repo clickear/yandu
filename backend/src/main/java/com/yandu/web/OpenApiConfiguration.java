@@ -29,7 +29,8 @@ public class OpenApiConfiguration {
                         .version("1.0.0")
                         .description("""
                                 Versioned project, catalog, translation, machine-translation, import, and release API.
-                                Requires an OIDC access token as a Bearer token. Numeric BIGINT identifiers are
+                                Workspace APIs require an OIDC Bearer token; /api/v1/public/** consumer endpoints
+                                expose only immutable published translation snapshots. Numeric BIGINT identifiers are
                                 represented as decimal strings. Paginated endpoints use a 1-based page and
                                 pageSize (default 50); limits are documented per operation. Errors use RFC 9457 Problem
                                 Details; asynchronous jobs return 202 and expose durable status and retry endpoints.
@@ -50,6 +51,18 @@ public class OpenApiConfiguration {
             openApi.getPaths().values().stream()
                     .flatMap(path -> path.readOperations().stream())
                     .forEach(this::addProblemResponses);
+            openApi.getPaths().forEach((path, item) -> {
+                if (path.startsWith("/api/v1/public/")) {
+                    item.readOperations().forEach(operation -> {
+                        operation.setSecurity(java.util.List.of());
+                        operation.getResponses().remove("401");
+                        operation.getResponses().remove("403");
+                        operation.getResponses().remove("409");
+                        operation.getResponses().remove("422");
+                        operation.getResponses().remove("503");
+                    });
+                }
+            });
             normalizeIdentifierSchemas(openApi);
         };
     }

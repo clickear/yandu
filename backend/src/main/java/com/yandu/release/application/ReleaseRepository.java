@@ -14,6 +14,8 @@ public interface ReleaseRepository {
 
     Optional<ReleaseSnapshot> find(long projectId, long releaseId);
 
+    Optional<ReleaseMetadata> latestPublished(long projectId, String locale, String format);
+
     List<ReleaseSnapshot> list(long projectId, String locale, String format, int limit);
 
     List<ReleaseLine> lines(long projectId, String locale);
@@ -43,6 +45,10 @@ public interface ReleaseRepository {
     record ReleaseSnapshot(long id, long projectId, String locale, String format, long version,
                            Long rollbackOfReleaseId,
                            String content, String manifest, String checksum,
+                           long publishedBy, Instant publishedAt) { }
+
+    record ReleaseMetadata(long id, long projectId, String locale, String format, long version,
+                           Long rollbackOfReleaseId, String manifest, String checksum,
                            long publishedBy, Instant publishedAt) { }
 
     record ReleaseLine(long entryId, String key, String sourceText, long sourceRevision,

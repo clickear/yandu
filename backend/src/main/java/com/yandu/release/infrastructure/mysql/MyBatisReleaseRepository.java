@@ -36,6 +36,14 @@ public class MyBatisReleaseRepository implements ReleaseRepository {
     }
 
     @Override
+    public Optional<ReleaseMetadata> latestPublished(long projectId, String locale, String format) {
+        return Optional.ofNullable(mapper.findLatestPublished(projectId, locale, format))
+                .map(row -> new ReleaseMetadata(row.getId(), row.getProjectId(), row.getLocale(), row.getFormat(),
+                        row.getVersionNo(), row.getRollbackOfReleaseId(), row.getManifestJson(),
+                        row.getChecksumSha256(), row.getPublishedBy(), row.getPublishedAt()));
+    }
+
+    @Override
     public List<ReleaseSnapshot> list(long projectId, String locale, String format, int limit) {
         return mapper.findSnapshots(projectId, locale, format, limit).stream().map(this::snapshot).toList();
     }

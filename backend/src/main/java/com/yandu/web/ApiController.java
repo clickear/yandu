@@ -15,6 +15,7 @@ import jakarta.validation.constraints.Size;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import io.swagger.v3.oas.annotations.media.Schema;
 import org.springframework.http.HttpStatus;
@@ -526,6 +527,39 @@ public class ApiController {
             @PathVariable long projectId,
             @PathVariable long releaseId) {
         return ReleaseApplicationService.summary(releases.get(actors.resolve(principal), projectId, releaseId));
+    }
+
+    @GetMapping("/public/projects/{projectId}/translations/{locale}/latest")
+    @Operation(summary = "读取最新已发布翻译版本", description = "面向消费端的公开只读接口；仅返回已发布快照元数据。")
+    @SecurityRequirements
+    public ResponseEntity<ReleaseApplicationService.PublicReleaseMetadata> latestPublicRelease(
+            @PathVariable long projectId, @PathVariable String locale,
+            @RequestParam(defaultValue = ReleaseApplicationService.JSON_FLAT) String format,
+            @RequestHeader(value = org.springframework.http.HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch) {
+        var metadata = releases.latestPublished(projectId, locale, format);
+        var etag = "\"" + metadata.checksumSha256() + "\"";
+        if (etag.equals(ifNoneMatch)) return ResponseEntity.status(HttpStatus.NOT_MODIFIED)
+                .eTag(metadata.checksumSha256()).build();
+        return ResponseEntity.ok().eTag(metadata.checksumSha256())
+                .cacheControl(org.springframework.http.CacheControl.noCache()).body(metadata);
+    }
+
+    @GetMapping("/public/projects/{projectId}/translations/{locale}/latest/content")
+    @Operation(summary = "下载已发布翻译快照", description = "面向消费端的公开只读接口；正文校验 SHA-256 并按不可变版本下载。")
+    @SecurityRequirements
+    public ResponseEntity<String> publicReleaseContent(
+            @PathVariable long projectId, @PathVariable String locale,
+            @RequestParam(defaultValue = ReleaseApplicationService.JSON_FLAT) String format,
+            @RequestHeader(value = org.springframework.http.HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch) {
+        var metadata = releases.latestPublished(projectId, locale, format);
+        var content = releases.downloadPublished(projectId, locale, format, Long.parseLong(metadata.id()));
+        var etag = "\"" + metadata.checksumSha256() + "\"";
+        var mediaType = ReleaseApplicationService.JAVA_PROPERTIES.equals(format)
+                ? MediaType.TEXT_PLAIN : MediaType.APPLICATION_JSON;
+        if (etag.equals(ifNoneMatch)) return ResponseEntity.status(HttpStatus.NOT_MODIFIED)
+                .eTag(metadata.checksumSha256()).build();
+        return ResponseEntity.ok().eTag(metadata.checksumSha256())
+                .cacheControl(org.springframework.http.CacheControl.noCache()).contentType(mediaType).body(content);
     }
 
     @GetMapping("/projects/{projectId}/releases/{releaseId}/content")
