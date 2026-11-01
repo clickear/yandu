@@ -58,12 +58,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     const problem = await response.json().catch(() => null) as {
       detail?: string; title?: string; issues?: { message?: string }[]
+      expectedVersion?: number; actualVersion?: number
+      expectedRevision?: number; actualRevision?: number
     } | null
     const qualityMessages = [...new Set((problem?.issues ?? [])
       .map((issue) => issue.message?.trim()).filter((message): message is string => Boolean(message)))]
-    const message = qualityMessages.length
-      ? `质量检查未通过：${qualityMessages.join('；')}`
-      : problem?.detail ?? problem?.title ?? `服务端请求失败（${response.status}）。`
+    let message = problem?.detail ?? problem?.title ?? `服务端请求失败（${response.status}）。`
+    if (qualityMessages.length) {
+      message = `质量检查未通过：${qualityMessages.join('；')}`
+    } else if (response.status === 409 && problem
+      && Number.isInteger(problem?.expectedVersion) && Number.isInteger(problem?.actualVersion)) {
+      message = `译文已被其他操作更新（本次使用版本 ${problem.expectedVersion}，当前版本 ${problem.actualVersion}）。`
+        + '当前编辑草稿仍保留在本次浏览器会话中；请重新读取最新译文、合并修改后再保存。'
+    } else if (response.status === 409 && problem
+      && Number.isInteger(problem?.expectedRevision) && Number.isInteger(problem?.actualRevision)) {
+      message = `源文已被其他操作更新（本次使用版本 ${problem.expectedRevision}，当前版本 ${problem.actualRevision}）。`
+        + '请读取最新源文后确认修改内容，再重新保存。'
+    }
     throw new Error(message)
   }
   if (response.status === 204) return undefined as T
