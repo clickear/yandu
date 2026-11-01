@@ -140,6 +140,36 @@ class ApiControllerTest {
     }
 
     @Test
+    void importHistoryIsScopedToTheProjectAndFailedJobsCanBeRetried() throws Exception {
+        given(actors.resolve(any())).willReturn(41L);
+        given(imports.listRecent(41L, 10L)).willReturn(java.util.List.of(
+                new ImportApplicationService.ImportJobSummary("90", "en-US", "FAILED",
+                        "a".repeat(64), 2, 1, 0, 0, "导入执行失败",
+                        java.time.Instant.parse("2026-10-01T12:00:00Z"),
+                        java.time.Instant.parse("2026-10-01T12:01:00Z"))));
+
+        mvc.perform(get("/api/v1/projects/10/imports")
+                        .with(jwt().jwt(token -> token.subject("external-subject"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].status").value("FAILED"))
+                .andExpect(jsonPath("$[0].updated").value(1));
+        verify(imports).listRecent(41L, 10L);
+
+        var now = java.time.Instant.parse("2026-10-01T12:01:00Z");
+        given(imports.retry(any())).willReturn(new ImportApplicationService.ImportJobView(
+                "90", "10", "en-US", "QUEUED", "a".repeat(64),
+                new ImportApplicationService.PreviewData("en-US", "30", 1L,
+                        java.util.List.of(), 0, 0, 0, 0), null, now, now));
+        mvc.perform(post("/api/v1/projects/10/imports/90/retry")
+                        .with(jwt().jwt(token -> token.subject("external-subject")))
+                        .contentType("application/json")
+                        .content("{\"previewHash\":\"" + "a".repeat(64) + "\"}"))
+                .andExpect(status().isAccepted());
+        verify(imports).retry(new ImportApplicationService.ApplyImport(
+                41L, 10L, 90L, "a".repeat(64)));
+    }
+
+    @Test
     void translationReviewCanReturnWorkWithAnAuditableReason() throws Exception {
         given(actors.resolve(any())).willReturn(41L);
         given(translations.decide(any())).willReturn(new TranslationApplicationService.TranslationView(

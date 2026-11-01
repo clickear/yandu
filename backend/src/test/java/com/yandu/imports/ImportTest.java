@@ -67,4 +67,24 @@ class ImportTest {
                 new ImportApplicationService.CreatePreview(41L, 10L, 10L, "zh-CN",
                         "request-0002", "{\"home.title\":\"a\",\"home.title\":\"b\"}")));
     }
+
+    @Test
+    void recentJobSummaryExposesStatusAndCountsWithoutReturningImportContents() {
+        var preview = service.preview(new ImportApplicationService.CreatePreview(41L, 10L, 10L,
+                "zh-CN", "request-0001", "{\"home.title\":\"新文案\"}"));
+        var captured = org.mockito.ArgumentCaptor.forClass(ImportRepository.Job.class);
+        verify(imports).insert(captured.capture());
+        var job = captured.getValue();
+        given(imports.findRecent(10L, 20)).willReturn(List.of(new ImportRepository.JobSummary(
+                job.id(), job.locale(), job.status(), job.previewHash(), 0, 1, 0, 0,
+                null, job.createdAt(), job.updatedAt())));
+
+        var jobs = service.listRecent(41L, 10L);
+
+        assertEquals(1, jobs.size());
+        assertEquals(preview.id(), jobs.getFirst().id());
+        assertEquals("PREVIEW_READY", jobs.getFirst().status());
+        assertEquals(1, jobs.getFirst().updated());
+        assertEquals(0, jobs.getFirst().conflicts());
+    }
 }

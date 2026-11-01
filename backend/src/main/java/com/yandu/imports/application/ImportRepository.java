@@ -11,6 +11,8 @@ public interface ImportRepository {
 
     Optional<Job> findByIdempotencyKey(long projectId, String idempotencyKey);
 
+    List<JobSummary> findRecent(long projectId, int limit);
+
     List<Job> findQueued(int limit);
 
     int recoverStale(Instant runningBefore, Instant updatedAt);
@@ -28,6 +30,10 @@ public interface ImportRepository {
     record Job(long id, long projectId, long namespaceId, String locale, long projectVersion,
                String idempotencyKey, String payloadJson, String previewJson, String previewHash,
                String status, long createdBy, Instant createdAt, Instant updatedAt, String error) { }
+
+    record JobSummary(long id, String locale, String status, String previewHash,
+                      int added, int updated, int unchanged, int conflicts, String error,
+                      Instant createdAt, Instant updatedAt) { }
 
     /** Persistence port for the independently-lived local-project migration workflow. */
     interface ProjectMigrations {

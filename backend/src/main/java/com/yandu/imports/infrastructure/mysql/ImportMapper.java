@@ -64,6 +64,14 @@ public interface ImportMapper extends BaseMapper<ImportMapper.ImportJobRow> {
     @Select("SELECT * FROM import_jobs WHERE project_id = #{projectId} AND idempotency_key = #{key}")
     ImportJobRow findByKey(@Param("projectId") long projectId, @Param("key") String key);
 
+    @Select("SELECT id, locale, status, preview_hash, error, created_at, updated_at, "
+            + "CAST(JSON_UNQUOTE(JSON_EXTRACT(preview_json, '$.added')) AS UNSIGNED) AS added, "
+            + "CAST(JSON_UNQUOTE(JSON_EXTRACT(preview_json, '$.updated')) AS UNSIGNED) AS updated, "
+            + "CAST(JSON_UNQUOTE(JSON_EXTRACT(preview_json, '$.unchanged')) AS UNSIGNED) AS unchanged, "
+            + "CAST(JSON_UNQUOTE(JSON_EXTRACT(preview_json, '$.conflicts')) AS UNSIGNED) AS conflicts "
+            + "FROM import_jobs WHERE project_id = #{projectId} ORDER BY created_at DESC, id DESC LIMIT #{limit}")
+    List<ImportJobSummaryRow> findRecent(@Param("projectId") long projectId, @Param("limit") int limit);
+
     @Select("SELECT * FROM import_jobs WHERE status = 'QUEUED' ORDER BY created_at, id LIMIT #{limit}")
     List<ImportJobRow> findQueued(@Param("limit") int limit);
 
@@ -120,6 +128,24 @@ public interface ImportMapper extends BaseMapper<ImportMapper.ImportJobRow> {
         private Instant createdAt;
         private Instant updatedAt;
         private String error;
+    }
+
+    @TableName("import_jobs")
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    class ImportJobSummaryRow {
+        private Long id;
+        private String locale;
+        private String status;
+        private String previewHash;
+        private Integer added;
+        private Integer updated;
+        private Integer unchanged;
+        private Integer conflicts;
+        private String error;
+        private Instant createdAt;
+        private Instant updatedAt;
     }
 
     @TableName("project_migrations")

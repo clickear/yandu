@@ -42,6 +42,7 @@ public class ImportApplicationService {
 
     public static final int MAX_IMPORT_BYTES = 5 * 1024 * 1024;
     public static final int MAX_IMPORT_ENTRIES = 10_000;
+    private static final String GENERIC_FAILURE = "导入执行失败，请重新生成预览后重试。";
     private static final Pattern RESERVED_KEY = Pattern.compile("(^|\\.)(__proto__|prototype|constructor)(\\.|$)");
     private final ImportRepository imports;
     private final CatalogEntryApplicationService catalog;
@@ -171,6 +172,15 @@ public class ImportApplicationService {
         return view(find(projectId, jobId));
     }
 
+    @Transactional(readOnly = true)
+    public List<ImportJobSummary> listRecent(long actorId, long projectId) {
+        access.requireCanReadCatalog(actorId, projectId);
+        return imports.findRecent(projectId, 20).stream().map(job -> new ImportJobSummary(
+                Long.toString(job.id()), job.locale(), job.status(), job.previewHash(), job.added(),
+                job.updated(), job.unchanged(), job.conflicts(), safeStoredFailure(job.error()), job.createdAt(),
+                job.updatedAt())).toList();
+    }
+
     @Scheduled(fixedDelayString = "${yandu.import.poll-ms:2000}")
     public void dispatchQueuedJobs() {
         var now = clock.instant();
@@ -193,9 +203,8 @@ public class ImportApplicationService {
         try {
             transactions.executeWithoutResult(status -> applyInsideTransaction(projectId, jobId));
         } catch (RuntimeException failure) {
-            var message = failure.getMessage() == null ? "Import failed" : failure.getMessage();
             var job = imports.find(projectId, jobId).orElse(null);
-            var error = message.substring(0, Math.min(message.length(), 1000));
+            var error = safeFailure(failure);
             transactions.executeWithoutResult(status -> {
                 var failed = imports.fail(jobId, error, clock.instant());
                 if (failed && job != null) audit.record(projectId, job.createdBy(), "IMPORT_FAILED", "IMPORT_JOB",
@@ -345,7 +354,28 @@ public class ImportApplicationService {
     private ImportJobView view(Job job) {
         return new ImportJobView(Long.toString(job.id()), Long.toString(job.projectId()),
                 job.locale(), job.status(), job.previewHash(), readPreview(job.previewJson()),
-                job.error(), job.createdAt(), job.updatedAt());
+                safeStoredFailure(job.error()), job.createdAt(), job.updatedAt());
+    }
+
+    private static String safeFailure(RuntimeException failure) {
+        if (failure instanceof ImportPreviewConflictException
+                || failure instanceof IllegalArgumentException) {
+            var message = failure.getMessage();
+            if (message != null && !message.isBlank()) {
+                return message.substring(0, Math.min(message.length(), 500));
+            }
+        }
+        return GENERIC_FAILURE;
+    }
+
+    private static String safeStoredFailure(String error) {
+        if (error == null || GENERIC_FAILURE.equals(error)) return error;
+        if (error.startsWith("Source entry changed after preview:")
+                || error.startsWith("Translation changed after preview:")
+                || error.startsWith("Project settings changed after the preview")) {
+            return error.substring(0, Math.min(error.length(), 500));
+        }
+        return GENERIC_FAILURE;
     }
 
     private Job find(long projectId, long jobId) {
@@ -395,6 +425,10 @@ public class ImportApplicationService {
     public record ImportJobView(String id, String projectId, String locale, String status,
                                 String previewHash, PreviewData preview, String error,
                                 java.time.Instant createdAt, java.time.Instant updatedAt) { }
+
+    public record ImportJobSummary(String id, String locale, String status, String previewHash,
+                                   int added, int updated, int unchanged, int conflicts, String error,
+                                   java.time.Instant createdAt, java.time.Instant updatedAt) { }
 
     public record PreviewBody(long namespaceId, String locale, String idempotencyKey, String json) { }
 

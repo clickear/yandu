@@ -972,6 +972,44 @@ tbody tr:hover {
 .import-preview small {
   color: #776b83;
 }
+.import-jobs {
+  display: grid;
+  gap: 8px;
+  max-height: 230px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbf9fd;
+}
+.import-jobs h3,
+.import-jobs p {
+  margin: 0;
+  font-size: 12px;
+}
+.import-jobs > p {
+  color: #776b83;
+}
+.import-job {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+.import-job > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.import-job small {
+  color: #776b83;
+}
+.import-job .form-error {
+  margin: 0;
+}
 .table-footer > span:last-child {
   display: flex;
   align-items: center;

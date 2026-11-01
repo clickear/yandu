@@ -380,13 +380,20 @@ export function applyRemoteImport(projectId: string, jobId: string, previewHash:
   })
 }
 
-export async function waitForRemoteImport(projectId: string, jobId: string) {
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    await new Promise((resolve) => window.setTimeout(resolve, 1000))
-    const job = await request<{ status: string; error: string | null }>(`/projects/${projectId}/imports/${jobId}`)
-    if (job.status === 'COMPLETED' || job.status === 'FAILED') return job
-  }
-  return { status: 'RUNNING', error: null }
+export type RemoteImportJob = {
+  id: string; locale: string; status: string; previewHash: string
+  added: number; updated: number; unchanged: number; conflicts: number
+  error: string | null; createdAt: string; updatedAt: string
+}
+
+export function listRemoteImportJobs(projectId: string) {
+  return request<RemoteImportJob[]>(`/projects/${projectId}/imports`)
+}
+
+export function retryRemoteImport(projectId: string, jobId: string, previewHash: string) {
+  return request<unknown>(`/projects/${projectId}/imports/${jobId}/retry`, {
+    method: 'POST', body: JSON.stringify({ previewHash }),
+  })
 }
 
 export type ProjectMigration = {

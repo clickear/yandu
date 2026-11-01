@@ -45,6 +45,8 @@ import {
   addRemoteLocale,
   addRemoteMember,
   applyRemoteImport,
+  listRemoteImportJobs,
+  retryRemoteImport,
   archiveRemoteEntry,
   restoreRemoteEntry,
   listRemoteArchivedEntries,
@@ -79,7 +81,6 @@ import {
   signOut,
   submitRemoteTranslation,
   updateRemoteSource,
-  waitForRemoteImport,
   previewProjectMigration,
   applyProjectMigration,
   getProjectMigration,
@@ -119,6 +120,11 @@ function readInitial() {
 const workflowStatusLabels: Record<string, string> = {
   reviewed: '已审核', 'in-review': '审核中', 'changes-requested': '已退回',
   'needs-review': '需复核', draft: '草稿', untranslated: '未翻译', archived: '已归档',
+}
+
+const importJobStatusLabels: Record<string, string> = {
+  PREVIEW_READY: '待确认', QUEUED: '排队中', RUNNING: '处理中',
+  COMPLETED: '已完成', FAILED: '失败',
 }
 
 function readLocalProjectsForMigration(): Project[] {
@@ -414,6 +420,9 @@ export default function App() {
   const [importLocale, setImportLocale] = useState(locale)
   const [importFile, setImportFile] = useState('')
   const [importPreview, setImportPreview] = useState<Awaited<ReturnType<typeof previewRemoteImport>> | null>(null)
+  const [importJobs, setImportJobs] = useState<Awaited<ReturnType<typeof listRemoteImportJobs>>>([])
+  const [importJobsLoading, setImportJobsLoading] = useState(false)
+  const [importJobActionId, setImportJobActionId] = useState<string | null>(null)
   const [authStatus, setAuthStatus] = useState<'loading' | 'signed-out' | 'ready' | 'error'>(
     backendEnabled ? 'loading' : 'ready',
   )
@@ -445,6 +454,7 @@ export default function App() {
   const downloadedReleaseJobs = useRef(new Set<string>())
   const releaseJobStatuses = useRef(new Map<string, string>())
   const machineJobStatusById = useRef(new Map<string, string>())
+  const importJobStatuses = useRef(new Map<string, string>())
   const [glossaryTerms, setGlossaryTerms] = useState<Awaited<ReturnType<typeof listRemoteGlossary>>['items']>([])
   const [glossaryLoading, setGlossaryLoading] = useState(false)
   const [localProjects] = useState(readLocalProjectsForMigration)
@@ -753,6 +763,34 @@ export default function App() {
       notify(error instanceof Error ? error.message : '词条归档失败。', true)
     }
   }
+  const refreshImportJobs = async () => {
+    if (!project) return
+    const jobs = await listRemoteImportJobs(project.id)
+    setImportJobs(jobs)
+  }
+  const resumeImportJob = async (jobId: string, previewHash: string) => {
+    if (!project) return
+    setImportJobActionId(jobId)
+    try {
+      await applyRemoteImport(project.id, jobId, previewHash)
+      void refreshImportJobs().catch(() => {})
+      setRemoteRefresh((value) => value + 1)
+      notify('导入任务已排队，正在更新状态。')
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '继续导入失败。', true)
+    } finally { setImportJobActionId(null) }
+  }
+  const retryImportJob = async (jobId: string, previewHash: string) => {
+    if (!project) return
+    setImportJobActionId(jobId)
+    try {
+      await retryRemoteImport(project.id, jobId, previewHash)
+      void refreshImportJobs().catch(() => {})
+      notify('导入任务已重新排队。')
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '导入重试失败。', true)
+    } finally { setImportJobActionId(null) }
+  }
   const restoreEntry = async (entry: Entry) => {
     if (!project || !window.confirm(`恢复「${entry.key}」？恢复后它会重新出现在工作台和后续发布中。`)) return
     try {
@@ -820,6 +858,33 @@ export default function App() {
   const canManageProject = ['OWNER', 'ADMIN'].includes(projectRole ?? '')
   const canManageGlossary = projectActive && ['OWNER', 'ADMIN'].includes(projectRole ?? '')
   const canManageTranslation = projectActive && ['OWNER', 'ADMIN', 'TRANSLATOR'].includes(projectRole ?? '')
+
+  useEffect(() => {
+    if (!backendEnabled || modal !== 'import' || !project) return
+    let active = true
+    setImportJobsLoading(true)
+    const refresh = () => listRemoteImportJobs(project.id).then((jobs) => {
+      if (!active) return
+      let refreshedWorkspace = false
+      for (const job of jobs) {
+        const previous = importJobStatuses.current.get(job.id)
+        if (job.status === 'COMPLETED' && previous !== 'COMPLETED') {
+          refreshedWorkspace = true
+          if (previous) notify('JSON 导入任务已完成。')
+        } else if (job.status === 'FAILED' && previous !== 'FAILED' && previous) {
+          notify(job.error || 'JSON 导入失败。', true)
+        }
+        importJobStatuses.current.set(job.id, job.status)
+      }
+      setImportJobs(jobs)
+      if (refreshedWorkspace) setRemoteRefresh((value) => value + 1)
+    }).catch((error: unknown) => {
+      if (active) setFeedback({ text: error instanceof Error ? error.message : '导入任务读取失败。', error: true })
+    }).finally(() => { if (active) setImportJobsLoading(false) })
+    void refresh()
+    const timer = window.setInterval(() => { void refresh() }, 3000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [backendEnabled, modal, project?.id])
 
   useEffect(() => {
     if (!backendEnabled || modal !== 'glossary' || !project) return
@@ -2004,12 +2069,14 @@ export default function App() {
           <form
             onSubmit={(e) => {
               e.preventDefault()
+              const formElement = e.currentTarget
               void (async () => {
                 try {
                   if (backendEnabled) {
                     if (!importPreview) {
                       const preview = await previewRemoteImport(project.id, project, importLocale, importText, activeNamespaceId)
                       setImportPreview(preview)
+                      void refreshImportJobs().catch(() => {})
                       setFormError('')
                       notify('差异预览已生成，请检查后确认导入。')
                       return
@@ -2019,16 +2086,13 @@ export default function App() {
                     }
                     await applyRemoteImport(project.id, importPreview.id, importPreview.previewHash)
                     setRemoteRefresh((value) => value + 1)
+                    void refreshImportJobs().catch(() => {})
+                    setImportPreview(null)
+                    setImportText('')
+                    setImportFile('')
+                    const fileInput = formElement.querySelector<HTMLInputElement>('input[type="file"]')
+                    if (fileInput) fileInput.value = ''
                     notify(`已提交 ${importPreview.preview.added + importPreview.preview.updated} 条导入任务，后台正在处理。`)
-                    setModal(null)
-                    void waitForRemoteImport(project.id, importPreview.id).then((job) => {
-                      setRemoteRefresh((value) => value + 1)
-                      if (job.status === 'COMPLETED') notify('JSON 导入任务已完成。')
-                      else if (job.status === 'FAILED') notify(job.error || 'JSON 导入失败。', true)
-                      else notify('导入仍在后台处理，可稍后刷新查看。')
-                    }).catch((error: unknown) => {
-                      notify(error instanceof Error ? error.message : '无法查询导入任务状态。', true)
-                    })
                   } else {
                     const result = importMessages(project, importLocale, importText)
                     updateProject(result.project)
@@ -2041,6 +2105,34 @@ export default function App() {
               })()
             }}
           >
+            {backendEnabled && (
+              <section className="import-jobs" aria-label="最近导入任务">
+                <h3>最近导入任务</h3>
+                {importJobsLoading && importJobs.length === 0 && <p>正在读取任务…</p>}
+                {!importJobsLoading && importJobs.length === 0 && <p>还没有导入任务。</p>}
+                {importJobs.map((job) => (
+                  <article className="import-job" key={job.id}>
+                    <div>
+                      <strong>{languageName(job.locale)} · {importJobStatusLabels[job.status] ?? job.status}</strong>
+                      <small>新增 {job.added} · 更新 {job.updated} · 未变化 {job.unchanged} · 冲突 {job.conflicts}</small>
+                      {job.error && <p className="form-error">{job.error}</p>}
+                    </div>
+                    {canManageCatalog && job.status === 'PREVIEW_READY' && job.conflicts === 0 && (
+                      <button type="button" className="button secondary" disabled={importJobActionId !== null}
+                        onClick={() => void resumeImportJob(job.id, job.previewHash)}>
+                        {importJobActionId === job.id ? '提交中…' : '继续导入'}
+                      </button>
+                    )}
+                    {canManageCatalog && job.status === 'FAILED' && (
+                      <button type="button" className="button secondary" disabled={importJobActionId !== null}
+                        onClick={() => void retryImportJob(job.id, job.previewHash)}>
+                        {importJobActionId === job.id ? '重试中…' : '重试'}
+                      </button>
+                    )}
+                  </article>
+                ))}
+              </section>
+            )}
             <label>
               导入语言
               <select value={importLocale} onChange={(e) => { setImportLocale(e.target.value); setImportPreview(null) }}>
@@ -2057,7 +2149,7 @@ export default function App() {
             <label className="file-picker">
               <ArrowUpFromLine size={24} />
               <strong>{importFile || '选择 JSON 文件'}</strong>
-              <span>扁平字符串 JSON · 最大 1 MB</span>
+              <span>扁平字符串 JSON · 最大 {backendEnabled ? '5 MiB' : '1 MB'}</span>
               <input
                 aria-label="选择 JSON 文件"
                 type="file"
@@ -2070,8 +2162,9 @@ export default function App() {
                   setImportPreview(null)
                   setFormError('')
                   if (!file) return
-                  if (file.size > MAX_IMPORT_BYTES) {
-                    setFormError('JSON 文件不能超过 1 MB。')
+                  const maxBytes = backendEnabled ? 5 * 1024 * 1024 : MAX_IMPORT_BYTES
+                  if (file.size > maxBytes) {
+                    setFormError(`JSON 文件不能超过 ${backendEnabled ? '5 MiB' : '1 MB'}。`)
                     return
                   }
                   try {

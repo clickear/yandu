@@ -574,6 +574,14 @@ public class ApiController {
         return imports.get(actors.resolve(principal), projectId, jobId);
     }
 
+    @GetMapping("/projects/{projectId}/imports")
+    @Operation(summary = "查询最近的 JSON 导入任务")
+    public java.util.List<ImportApplicationService.ImportJobSummary> importJobs(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
+            @PathVariable long projectId) {
+        return imports.listRecent(actors.resolve(principal), projectId);
+    }
+
     @PostMapping("/projects/{projectId}/imports/{jobId}/apply")
     @Operation(summary = "确认并排队导入")
     public ResponseEntity<ImportApplicationService.ImportJobView> applyImport(
