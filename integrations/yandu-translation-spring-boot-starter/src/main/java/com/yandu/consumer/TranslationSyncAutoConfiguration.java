@@ -24,12 +24,8 @@ public class TranslationSyncAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(YanduMessageSource.class)
-    YanduMessageSource yanduTranslationMessageSource(TranslationCatalog catalog,
-                                                       TranslationSyncProperties properties) {
-        if (properties.configuredLocales().isEmpty()) {
-            throw new IllegalArgumentException("yandu.translation-sync.locales is required when sync is enabled");
-        }
-        return new YanduMessageSource(catalog, properties.configuredLocales());
+    YanduMessageSource yanduTranslationMessageSource(TranslationCatalog catalog) {
+        return new YanduMessageSource(catalog);
     }
 
     @Bean(name = "messageSource")

@@ -11,10 +11,7 @@ yandu:
     netty-host: yandu.example.com # optional; defaults to api-base-url host
     netty-port: 9091
     project-id: 1001
-    locales:
-      - fr-FR
-      - en-US
     format: json-flat-v1
 ```
 
-On the YANDU backend set `YANDU_NETTY_SYNC_ENABLED=true` and expose `YANDU_NETTY_SYNC_PORT` (default `9091`). The TCP protocol uses newline-delimited UTF-8 JSON; the client opens one subscription per configured locale with project, locale, format and last checksum. The server sends version notices and heartbeats. The client then retrieves and verifies the immutable content over the HTTP API. Reconnects resubscribe with the last active checksum.
+The client discovers active target locales from the project's Catalog and opens one subscription per locale. On the YANDU backend set `YANDU_NETTY_SYNC_ENABLED=true` and expose `YANDU_NETTY_SYNC_PORT` (default `9091`). The TCP protocol uses newline-delimited UTF-8 JSON with project, locale, format and last checksum. The server sends version notices and heartbeats. The client then retrieves and verifies the immutable content over the HTTP API. Reconnects resubscribe with the last active checksum.

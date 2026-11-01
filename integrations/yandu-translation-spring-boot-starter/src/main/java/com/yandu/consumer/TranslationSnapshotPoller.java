@@ -29,7 +29,8 @@ public class TranslationSnapshotPoller implements SmartLifecycle {
     private final List<TranslationSyncTransport> transports;
     private volatile ScheduledExecutorService scheduler;
     private volatile List<AutoCloseable> realtimeConnections = List.of();
-    private final List<String> locales;
+    private volatile List<String> locales = List.of();
+    private volatile TranslationSyncTransport realtimeTransport;
 
     public TranslationSnapshotPoller(TranslationSyncProperties properties, RestClient client,
                                      ObjectMapper json, TranslationCatalog catalog) {
@@ -44,11 +45,9 @@ public class TranslationSnapshotPoller implements SmartLifecycle {
         this.json = json;
         this.catalog = catalog;
         this.transports = List.copyOf(transports);
-        this.locales = properties.configuredLocales();
-        if (properties.getProjectId() <= 0 || locales.isEmpty()) {
-            throw new IllegalArgumentException("YANDU project-id and locales must be configured when sync is enabled");
+        if (properties.getProjectId() <= 0) {
+            throw new IllegalArgumentException("YANDU project-id must be configured when sync is enabled");
         }
-        catalog.setDefaultLocale(locales.get(0));
         if (properties.getRefreshIntervalMs() < 1_000) {
             throw new IllegalArgumentException("YANDU translation refresh interval must be at least 1000 ms");
         }
@@ -64,12 +63,31 @@ public class TranslationSnapshotPoller implements SmartLifecycle {
     }
 
     public synchronized void refreshNow() {
+        discoverLocales();
         for (var locale : locales) refreshLocale(locale);
     }
 
     public synchronized void refreshNow(String locale) {
+        if (locales.isEmpty()) discoverLocales();
         if (!locales.contains(locale)) throw new IllegalArgumentException("Locale is not configured for YANDU sync: " + locale);
         refreshLocale(locale);
+    }
+
+    private synchronized boolean discoverLocales() {
+        var discovered = client.get()
+                .uri("/api/v1/public/projects/{projectId}/locales", properties.getProjectId())
+                .retrieve().body(new org.springframework.core.ParameterizedTypeReference<List<String>>() { });
+        if (discovered == null || discovered.isEmpty()) {
+            throw new IllegalStateException("YANDU project Catalog returned no active target locales");
+        }
+        var normalized = discovered.stream().map(String::trim)
+                .map(locale -> java.util.Locale.forLanguageTag(locale).toLanguageTag())
+                .filter(locale -> !locale.equals("und")).distinct().sorted().toList();
+        if (normalized.isEmpty()) throw new IllegalStateException("YANDU project Catalog returned invalid locales");
+        var changed = !normalized.equals(locales);
+        locales = normalized;
+        catalog.setSupportedLocales(normalized);
+        return changed;
     }
 
     private void refreshLocale(String locale) {
@@ -132,19 +150,60 @@ public class TranslationSnapshotPoller implements SmartLifecycle {
                         .findFirst().orElseThrow(() -> new IllegalStateException(
                                 "Add the yandu-translation-sync-" + properties.getMode()
                                         + " module to enable this transport"));
-                var connections = new java.util.ArrayList<AutoCloseable>();
-                for (var locale : locales) {
-                    var localeProperties = propertiesFor(locale);
-                    connections.add(transport.connect(localeProperties, json, () -> catalog.version(locale),
-                            () -> refreshQuietly(locale)));
-                }
-                realtimeConnections = List.copyOf(connections);
+                realtimeTransport = transport;
+                connectRealtime();
+                scheduler = Executors.newSingleThreadScheduledExecutor(task -> {
+                    var thread = new Thread(task, "yandu-translation-catalog-discovery");
+                    thread.setDaemon(true);
+                    return thread;
+                });
+                scheduler.scheduleWithFixedDelay(this::reconcileRealtimeQuietly,
+                        properties.getRefreshIntervalMs(), properties.getRefreshIntervalMs(), TimeUnit.MILLISECONDS);
             }
         }
     }
 
     private void refreshAllQuietly() {
+        try {
+            discoverLocales();
+        } catch (RuntimeException exception) {
+            log.warn("YANDU Catalog locale discovery failed; retaining the last known locale set ("
+                    + exception.getClass().getSimpleName() + ")");
+            return;
+        }
         for (var locale : locales) refreshQuietly(locale);
+    }
+
+    private void reconcileRealtimeQuietly() {
+        try {
+            if (discoverLocales()) {
+                for (var locale : locales) refreshQuietly(locale);
+                closeRealtimeConnections();
+                connectRealtime();
+            }
+        } catch (RuntimeException exception) {
+            log.warn("YANDU Catalog locale reconciliation failed; retaining the last known connections ("
+                    + exception.getClass().getSimpleName() + ")");
+        }
+    }
+
+    private synchronized void connectRealtime() {
+        var transport = realtimeTransport;
+        if (transport == null) return;
+        var connections = new java.util.ArrayList<AutoCloseable>();
+        for (var locale : locales) {
+            var localeProperties = propertiesFor(locale);
+            connections.add(transport.connect(localeProperties, json, () -> catalog.version(locale),
+                    () -> refreshQuietly(locale)));
+        }
+        realtimeConnections = List.copyOf(connections);
+    }
+
+    private synchronized void closeRealtimeConnections() {
+        for (var connection : realtimeConnections) {
+            try { connection.close(); } catch (Exception ignored) { }
+        }
+        realtimeConnections = List.of();
     }
 
     private void refreshQuietly(String locale) {
@@ -163,7 +222,7 @@ public class TranslationSnapshotPoller implements SmartLifecycle {
         copy.setMode(properties.getMode());
         copy.setApiBaseUrl(properties.getApiBaseUrl());
         copy.setProjectId(properties.getProjectId());
-        copy.setLocales(List.of(locale));
+        copy.setLocale(locale);
         copy.setFormat(properties.getFormat());
         copy.setRefreshIntervalMs(properties.getRefreshIntervalMs());
         copy.setNettyHost(properties.getNettyHost());
@@ -174,10 +233,7 @@ public class TranslationSnapshotPoller implements SmartLifecycle {
 
     @Override
     public synchronized void stop() {
-        for (var connection : realtimeConnections) {
-            try { connection.close(); } catch (Exception ignored) { }
-        }
-        realtimeConnections = List.of();
+        closeRealtimeConnections();
         if (scheduler != null) {
             scheduler.shutdownNow();
             scheduler = null;

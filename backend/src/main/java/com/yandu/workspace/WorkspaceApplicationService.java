@@ -212,6 +212,14 @@ public class WorkspaceApplicationService {
         return projects.archivedTargetLocales(projectId);
     }
 
+    /** Public consumers use the active Catalog locale configuration to discover available snapshots. */
+    @Transactional(readOnly = true)
+    public List<String> publicTargetLocales(long projectId) {
+        var project = projects.find(projectId)
+                .orElseThrow(() -> new ProjectNotFoundException(projectId));
+        return project.targetLocales().stream().sorted().toList();
+    }
+
     @Transactional
     public void changeMemberRole(ChangeMemberRole command) {
         access.requireCanManageMembers(command.actorId(), command.projectId());

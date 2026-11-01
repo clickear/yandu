@@ -29,7 +29,7 @@ The Netty adapter brings Netty dependencies. The WebSocket adapter uses the JDK 
 </dependency>
 ```
 
-Configure the YANDU base URL, project ID, target locale and published format:
+Configure the YANDU base URL, project ID and published format. The target locale list comes from the backend project's Catalog:
 
 ```yaml
 yandu:
@@ -38,9 +38,6 @@ yandu:
     api-base-url: http://localhost:8080
     mode: polling # polling, netty, or websocket
     project-id: 1001
-    locales:
-      - fr-FR
-      - en-US
     format: json-flat-v1 # or java-properties-v1
     refresh-interval-ms: 60000
     # Netty mode defaults to api-base-url's host and port 9091.
@@ -50,13 +47,13 @@ yandu:
 
 For `mode: polling`, only the base dependency is needed. For `mode: netty`, also add `com.yandu:yandu-translation-sync-netty`; for `mode: websocket`, add `com.yandu:yandu-translation-sync-websocket`.
 
-When sync is enabled, the starter exposes `YanduMessageSource` and, if the application has not defined its own `messageSource`, registers it as Spring's `messageSource`. Configure all desired project locales under `locales`; each locale is synchronized independently and Spring selects the matching snapshot from the request locale. The legacy singular `locale` property remains supported for existing consumers. Application code can use Spring's normal `MessageSource` API:
+The starter reads the active target locales from the project's Catalog configuration; consumers do not maintain a separate locale list. It synchronizes each locale independently and refreshes the locale set when the Catalog configuration changes. When sync is enabled, the starter exposes `YanduMessageSource` and, if the application has not defined its own `messageSource`, registers it as Spring's `messageSource`. Spring selects the matching snapshot from the request locale. Application code can use Spring's normal `MessageSource` API:
 
 ```java
 String welcome = messageSource.getMessage("welcome", new Object[] {"Ada"}, locale);
 ```
 
-The requested locale must match a configured locale, or its language when exactly one configured locale has that language (for example, a `fr` request can use a configured `fr-FR` catalog). Other locales fall through to Spring's normal missing-message behavior. If the application already has its own `messageSource`, inject `YanduMessageSource` directly or compose it with that source.
+The requested locale must match a target locale active in the backend Catalog, or its language when exactly one active locale has that language (for example, a `fr` request can use a configured `fr-FR` catalog). Other locales fall through to Spring's normal missing-message behavior. If the application already has its own `messageSource`, inject `YanduMessageSource` directly or compose it with that source.
 
 `TranslationCatalog` remains available for applications that prefer direct lookup:
 

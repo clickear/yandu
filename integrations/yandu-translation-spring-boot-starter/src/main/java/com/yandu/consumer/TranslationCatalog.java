@@ -3,6 +3,7 @@ package com.yandu.consumer;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Locale;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 /** Read-only view of the latest completely downloaded translation snapshot. */
@@ -10,6 +11,7 @@ public class TranslationCatalog {
 
     private final AtomicReference<Map<String, Snapshot>> current = new AtomicReference<>(Map.of());
     private volatile String defaultLocale = "";
+    private volatile List<String> supportedLocales = List.of();
 
     public Optional<String> find(String key) {
         return find(defaultLocale, key);
@@ -55,6 +57,17 @@ public class TranslationCatalog {
     }
 
     void setDefaultLocale(String locale) { defaultLocale = normalize(locale); }
+
+    public List<String> supportedLocales() { return supportedLocales; }
+
+    void setSupportedLocales(List<String> locales) {
+        supportedLocales = locales.stream().map(TranslationCatalog::normalize).distinct().toList();
+        var supported = java.util.Set.copyOf(supportedLocales);
+        current.updateAndGet(snapshots -> snapshots.entrySet().stream()
+                .filter(entry -> supported.contains(entry.getKey()))
+                .collect(java.util.stream.Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue)));
+        if (!supportedLocales.isEmpty()) defaultLocale = supportedLocales.get(0);
+    }
 
     private Snapshot snapshotFor(String locale) {
         var snapshots = current.get();

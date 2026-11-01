@@ -2,7 +2,6 @@ package com.yandu.consumer;
 
 import java.text.MessageFormat;
 import java.util.Locale;
-import java.util.List;
 
 import org.springframework.context.support.AbstractMessageSource;
 
@@ -10,15 +9,7 @@ import org.springframework.context.support.AbstractMessageSource;
 public final class YanduMessageSource extends AbstractMessageSource {
 
     private final TranslationCatalog catalog;
-    private final List<Locale> configuredLocales;
-
-    public YanduMessageSource(TranslationCatalog catalog, List<String> configuredLocales) {
-        this.catalog = catalog;
-        this.configuredLocales = configuredLocales.stream().map(Locale::forLanguageTag).toList();
-        if (this.configuredLocales.isEmpty() || this.configuredLocales.stream().anyMatch(locale -> locale.getLanguage().isBlank())) {
-            throw new IllegalArgumentException("A valid YANDU translation locale is required");
-        }
-    }
+    public YanduMessageSource(TranslationCatalog catalog) { this.catalog = catalog; }
 
     @Override
     protected String resolveCodeWithoutArguments(String code, Locale locale) {
@@ -34,6 +25,7 @@ public final class YanduMessageSource extends AbstractMessageSource {
 
     private Locale matchingLocale(Locale requested) {
         if (requested == null || requested.getLanguage().isBlank()) return null;
+        var configuredLocales = catalog.supportedLocales().stream().map(Locale::forLanguageTag).toList();
         for (var configured : configuredLocales) if (configured.equals(requested)) return configured;
         if (requested.getCountry().isBlank()) {
             var languageMatches = configuredLocales.stream()

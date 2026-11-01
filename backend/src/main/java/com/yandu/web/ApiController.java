@@ -553,6 +553,13 @@ public class ApiController {
                 .cacheControl(org.springframework.http.CacheControl.noCache()).body(metadata);
     }
 
+    @GetMapping("/public/projects/{projectId}/locales")
+    @Operation(summary = "读取项目 Catalog 中配置的目标语言", description = "供翻译消费端发现当前项目已启用的目标语言。")
+    @SecurityRequirements
+    public java.util.List<String> publicProjectLocales(@PathVariable long projectId) {
+        return workspace.publicTargetLocales(projectId);
+    }
+
     @GetMapping("/public/projects/{projectId}/translations/{locale}/latest/content")
     @Operation(summary = "下载已发布翻译快照", description = "面向消费端的公开只读接口；正文校验 SHA-256 并按不可变版本下载。")
     @SecurityRequirements
