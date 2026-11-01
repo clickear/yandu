@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 public class MyBatisImportRepository implements ImportRepository, ImportRepository.ProjectMigrations {
@@ -16,6 +17,9 @@ public class MyBatisImportRepository implements ImportRepository, ImportReposito
 
     @Override public Optional<Job> find(long projectId, long jobId) {
         return Optional.ofNullable(mapper.find(projectId, jobId)).map(this::job);
+    }
+    @Override public Optional<Job> findForUpdate(long projectId, long jobId) {
+        return Optional.ofNullable(mapper.findForUpdate(projectId, jobId)).map(this::job);
     }
     @Override public Optional<Job> findByIdempotencyKey(long projectId, String key) {
         return Optional.ofNullable(mapper.findByKey(projectId, key)).map(this::job);
@@ -40,15 +44,23 @@ public class MyBatisImportRepository implements ImportRepository, ImportReposito
         row.setPreviewJson(job.previewJson()); row.setPreviewHash(job.previewHash());
         row.setStatus(job.status()); row.setCreatedBy(job.createdBy());
         row.setCreatedAt(job.createdAt()); row.setUpdatedAt(job.updatedAt()); row.setError(job.error());
+        row.setRunGeneration(job.runGeneration());
         mapper.insertJob(row);
     }
     @Override public boolean queue(long projectId, long jobId, String hash, Instant at) {
         return mapper.queue(projectId, jobId, hash, at) == 1;
     }
-    @Override public boolean claim(long jobId, Instant at) { return mapper.claim(jobId, at) == 1; }
-    @Override public void complete(long jobId, Instant at) { mapper.complete(jobId, at); }
-    @Override public boolean fail(long jobId, String error, Instant at) {
-        return mapper.fail(jobId, error, at) == 1;
+    @Override
+    @Transactional
+    public Optional<Job> claim(long jobId, Instant at) {
+        if (mapper.claim(jobId, at) != 1) return Optional.empty();
+        return Optional.ofNullable(mapper.findByJobId(jobId)).map(this::job);
+    }
+    @Override public boolean complete(long jobId, long runGeneration, Instant at) {
+        return mapper.complete(jobId, runGeneration, at) == 1;
+    }
+    @Override public boolean fail(long jobId, long runGeneration, String error, Instant at) {
+        return mapper.fail(jobId, runGeneration, error, at) == 1;
     }
 
     @Override public Optional<ProjectMigration> find(long id) {
@@ -87,7 +99,7 @@ public class MyBatisImportRepository implements ImportRepository, ImportReposito
         return new Job(row.getId(), row.getProjectId(), row.getNamespaceId(), row.getLocale(),
                 row.getProjectVersion(), row.getIdempotencyKey(), row.getPayloadJson(),
                 row.getPreviewJson(), row.getPreviewHash(), row.getStatus(), row.getCreatedBy(),
-                row.getCreatedAt(), row.getUpdatedAt(), row.getError());
+                row.getCreatedAt(), row.getUpdatedAt(), row.getError(), row.getRunGeneration());
     }
 
     private ProjectMigration migration(ImportMapper.ProjectMigrationRow row) {

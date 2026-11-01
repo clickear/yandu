@@ -120,7 +120,7 @@ public class ImportApplicationService {
         var now = clock.instant();
         var job = new Job(ids.getAsLong(), command.projectId(), command.namespaceId(), locale,
                 project.version(), command.idempotencyKey(), payloadJson, previewJson,
-                sha256(previewJson), "PREVIEW_READY", command.actorId(), now, now, null);
+                sha256(previewJson), "PREVIEW_READY", command.actorId(), now, now, null, 0);
         imports.insert(job);
         audit.record(command.projectId(), command.actorId(), "IMPORT_PREVIEW_CREATED", "IMPORT_JOB",
                 job.id(), Map.of("locale", locale, "added", data.added(), "updated", data.updated(),
@@ -199,22 +199,26 @@ public class ImportApplicationService {
     }
 
     private void process(long jobId, long projectId) {
-        if (!imports.claim(jobId, clock.instant())) return;
+        var claimed = imports.claim(jobId, clock.instant()).orElse(null);
+        if (claimed == null) return;
         try {
-            transactions.executeWithoutResult(status -> applyInsideTransaction(projectId, jobId));
+            transactions.executeWithoutResult(status -> applyInsideTransaction(projectId, claimed));
         } catch (RuntimeException failure) {
-            var job = imports.find(projectId, jobId).orElse(null);
             var error = safeFailure(failure);
             transactions.executeWithoutResult(status -> {
-                var failed = imports.fail(jobId, error, clock.instant());
-                if (failed && job != null) audit.record(projectId, job.createdBy(), "IMPORT_FAILED", "IMPORT_JOB",
+                var failed = imports.fail(jobId, claimed.runGeneration(), error, clock.instant());
+                if (failed) audit.record(projectId, claimed.createdBy(), "IMPORT_FAILED", "IMPORT_JOB",
                         jobId, Map.of("error", error));
             });
         }
     }
 
-    private void applyInsideTransaction(long projectId, long jobId) {
-        var job = find(projectId, jobId);
+    private void applyInsideTransaction(long projectId, Job claimed) {
+        var job = imports.findForUpdate(projectId, claimed.id())
+                .orElseThrow(() -> new ImportJobNotFoundException(claimed.id()));
+        if (!"RUNNING".equals(job.status()) || job.runGeneration() != claimed.runGeneration()) {
+            throw new StaleImportWorkerException();
+        }
         var project = workspace.getProject(job.createdBy(), projectId);
         if (project.version() != job.projectVersion()) {
             throw new ImportPreviewConflictException("Project settings changed after the preview was created");
@@ -231,8 +235,10 @@ public class ImportApplicationService {
                 applyTranslation(job, change, value, preview.locale());
             }
         }
-        imports.complete(jobId, clock.instant());
-        audit.record(projectId, job.createdBy(), "IMPORT_COMPLETED", "IMPORT_JOB", jobId,
+        if (!imports.complete(job.id(), claimed.runGeneration(), clock.instant())) {
+            throw new StaleImportWorkerException();
+        }
+        audit.record(projectId, job.createdBy(), "IMPORT_COMPLETED", "IMPORT_JOB", job.id(),
                 Map.of("entryCount", preview.items().size(), "locale", preview.locale()));
     }
 
@@ -442,5 +448,8 @@ public class ImportApplicationService {
     }
     public static final class ImportJobNotFoundException extends RuntimeException {
         public ImportJobNotFoundException(long jobId) { super("Import job not found: " + jobId); }
+    }
+    private static final class StaleImportWorkerException extends RuntimeException {
+        private StaleImportWorkerException() { super("This import worker no longer owns the current task attempt"); }
     }
 }

@@ -6,7 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yandu.audit.AuditLog;
@@ -86,5 +88,44 @@ class ImportTest {
         assertEquals("PREVIEW_READY", jobs.getFirst().status());
         assertEquals(1, jobs.getFirst().updated());
         assertEquals(0, jobs.getFirst().conflicts());
+    }
+
+    @Test
+    void staleWorkerCannotApplyOrFailANewerImportAttempt() {
+        var now = Instant.parse("2026-01-01T00:00:00Z");
+        var queued = new ImportRepository.Job(600L, 10L, 10L, "zh-CN", 7L,
+                "request-0003", "{}", "{}", "preview-hash", "QUEUED", 41L,
+                now, now, null, 0);
+        var claimed = new ImportRepository.Job(600L, 10L, 10L, "zh-CN", 7L,
+                "request-0003", "{}", "{}", "preview-hash", "RUNNING", 41L,
+                now, now, null, 1);
+        var newerAttempt = new ImportRepository.Job(600L, 10L, 10L, "zh-CN", 7L,
+                "request-0003", "{}", "{}", "preview-hash", "RUNNING", 41L,
+                now, now, null, 2);
+        given(imports.findQueued(20)).willReturn(List.of(queued));
+        given(imports.claim(600L, now)).willReturn(Optional.of(claimed));
+        given(imports.findForUpdate(10L, 600L)).willReturn(Optional.of(newerAttempt));
+        given(imports.fail(org.mockito.ArgumentMatchers.eq(600L), org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.anyString(), any())).willReturn(false);
+        var transactionManager = new PlatformTransactionManager() {
+            @Override public org.springframework.transaction.TransactionStatus getTransaction(
+                    org.springframework.transaction.TransactionDefinition definition) {
+                return new org.springframework.transaction.support.SimpleTransactionStatus();
+            }
+            @Override public void commit(org.springframework.transaction.TransactionStatus status) { }
+            @Override public void rollback(org.springframework.transaction.TransactionStatus status) { }
+        };
+        var serviceWithTransactions = new ImportApplicationService(imports, catalog,
+                mock(TranslationApplicationService.class), mock(WorkspaceApplicationService.class),
+                mock(ProjectAccessPolicy.class), () -> 900L, Clock.fixed(now, java.time.ZoneOffset.UTC),
+                new ObjectMapper(), Runnable::run, transactionManager, mock(AuditLog.class));
+
+        serviceWithTransactions.dispatchQueuedJobs();
+
+        verify(imports).findForUpdate(10L, 600L);
+        verify(imports).fail(org.mockito.ArgumentMatchers.eq(600L), org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.anyString(), any());
+        verify(imports, never()).complete(600L, 1L, now);
+        verifyNoInteractions(catalog);
     }
 }

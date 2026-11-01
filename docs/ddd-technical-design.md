@@ -176,7 +176,7 @@ Translation
 
 ImportJob、ProjectMigration 和 Release 都是独立聚合，不放在 Project 聚合中。
 
-- Import 只接受 UTF-8 扁平 JSON 字符串映射；重复键或不受支持的花括号占位格式整包拒绝。状态：`UPLOADED → PARSING → PREVIEW_READY → APPLYING → COMPLETED`；失败可重试，应用必须匹配预览摘要。
+- Import 只接受 UTF-8 扁平 JSON 字符串映射；重复键或不受支持的花括号占位格式整包拒绝。状态：`UPLOADED → PARSING → PREVIEW_READY → APPLYING → COMPLETED`；失败可重试，应用必须匹配预览摘要。Worker 领取任务时递增 `run_generation`；应用事务先锁任务行并核对代次，完成与失败写入也限定该代次，避免失联旧 worker 覆盖新一次重试的状态或数据。
 - ProjectMigration 使用版本化 UTF-8 JSON 包，每包只含一个项目及说明、语言、词条和译文；上限 5 MiB/10,000 词条。预览后由持久任务分批迁移；任务幂等、可查询并可从未完成项恢复，迁移中或失败的项目不可参与常规工作。相同来源项目的不同包摘要拒绝；冲突名称必须在应用前改名。迁入译文一律为 `DRAFT`。
 - Release 状态：`BUILDING → READY → PUBLISHED`；失败可 `FAILED`。已发布版本不更新、不覆盖。创建新发布用于“回滚”，其 manifest 引用/复制旧资源版本并标注 `rollback_of_release_id`。
 - 发布 manifest 固定 locale、key、源版本、译文 revision、quality report revision、格式和导出器版本，生成 SHA-256 校验和。仅保存 manifest 的不可变文件对象 key，不接受覆盖写。

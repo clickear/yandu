@@ -9,6 +9,9 @@ public interface ImportRepository {
 
     Optional<Job> find(long projectId, long jobId);
 
+    /** Locks the job row for the complete apply transaction and fences stale workers. */
+    Optional<Job> findForUpdate(long projectId, long jobId);
+
     Optional<Job> findByIdempotencyKey(long projectId, String idempotencyKey);
 
     List<JobSummary> findRecent(long projectId, int limit);
@@ -21,15 +24,16 @@ public interface ImportRepository {
 
     boolean queue(long projectId, long jobId, String previewHash, Instant updatedAt);
 
-    boolean claim(long jobId, Instant updatedAt);
+    Optional<Job> claim(long jobId, Instant updatedAt);
 
-    void complete(long jobId, Instant updatedAt);
+    boolean complete(long jobId, long runGeneration, Instant updatedAt);
 
-    boolean fail(long jobId, String error, Instant updatedAt);
+    boolean fail(long jobId, long runGeneration, String error, Instant updatedAt);
 
     record Job(long id, long projectId, long namespaceId, String locale, long projectVersion,
                String idempotencyKey, String payloadJson, String previewJson, String previewHash,
-               String status, long createdBy, Instant createdAt, Instant updatedAt, String error) { }
+               String status, long createdBy, Instant createdAt, Instant updatedAt, String error,
+               long runGeneration) { }
 
     record JobSummary(long id, String locale, String status, String previewHash,
                       int added, int updated, int unchanged, int conflicts, String error,

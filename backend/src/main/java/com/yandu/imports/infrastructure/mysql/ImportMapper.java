@@ -61,6 +61,12 @@ public interface ImportMapper extends BaseMapper<ImportMapper.ImportJobRow> {
     @Select("SELECT * FROM import_jobs WHERE project_id = #{projectId} AND id = #{jobId}")
     ImportJobRow find(@Param("projectId") long projectId, @Param("jobId") long jobId);
 
+    @Select("SELECT * FROM import_jobs WHERE project_id = #{projectId} AND id = #{jobId} FOR UPDATE")
+    ImportJobRow findForUpdate(@Param("projectId") long projectId, @Param("jobId") long jobId);
+
+    @Select("SELECT * FROM import_jobs WHERE id = #{jobId}")
+    ImportJobRow findByJobId(@Param("jobId") long jobId);
+
     @Select("SELECT * FROM import_jobs WHERE project_id = #{projectId} AND idempotency_key = #{key}")
     ImportJobRow findByKey(@Param("projectId") long projectId, @Param("key") String key);
 
@@ -99,14 +105,16 @@ public interface ImportMapper extends BaseMapper<ImportMapper.ImportJobRow> {
     int queue(@Param("projectId") long projectId, @Param("jobId") long jobId,
               @Param("previewHash") String previewHash, @Param("updatedAt") Instant updatedAt);
 
-    @Update("UPDATE import_jobs SET status = 'RUNNING', updated_at = #{updatedAt} WHERE id = #{jobId} AND status = 'QUEUED'")
+    @Update("UPDATE import_jobs SET status = 'RUNNING', run_generation = run_generation + 1, updated_at = #{updatedAt} WHERE id = #{jobId} AND status = 'QUEUED'")
     int claim(@Param("jobId") long jobId, @Param("updatedAt") Instant updatedAt);
 
-    @Update("UPDATE import_jobs SET status = 'COMPLETED', error = NULL, updated_at = #{updatedAt} WHERE id = #{jobId} AND status = 'RUNNING'")
-    int complete(@Param("jobId") long jobId, @Param("updatedAt") Instant updatedAt);
+    @Update("UPDATE import_jobs SET status = 'COMPLETED', error = NULL, updated_at = #{updatedAt} WHERE id = #{jobId} AND status = 'RUNNING' AND run_generation = #{runGeneration}")
+    int complete(@Param("jobId") long jobId, @Param("runGeneration") long runGeneration,
+                 @Param("updatedAt") Instant updatedAt);
 
-    @Update("UPDATE import_jobs SET status = 'FAILED', error = #{error}, updated_at = #{updatedAt} WHERE id = #{jobId} AND status = 'RUNNING'")
-    int fail(@Param("jobId") long jobId, @Param("error") String error,
+    @Update("UPDATE import_jobs SET status = 'FAILED', error = #{error}, updated_at = #{updatedAt} WHERE id = #{jobId} AND status = 'RUNNING' AND run_generation = #{runGeneration}")
+    int fail(@Param("jobId") long jobId, @Param("runGeneration") long runGeneration,
+             @Param("error") String error,
              @Param("updatedAt") Instant updatedAt);
 
     @TableName("import_jobs")
@@ -128,6 +136,7 @@ public interface ImportMapper extends BaseMapper<ImportMapper.ImportJobRow> {
         private Instant createdAt;
         private Instant updatedAt;
         private String error;
+        private Long runGeneration;
     }
 
     @TableName("import_jobs")
