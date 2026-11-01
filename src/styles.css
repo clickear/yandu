@@ -1649,6 +1649,21 @@ th > span:not(.sr-only) {
   list-style: none;
   border-top: 1px solid #eee7f3;
 }
+.release-job {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin: 14px 0 20px;
+  padding: 14px 16px;
+  border: 1px solid #e7d9f0;
+  border-radius: 12px;
+  background: #faf7fc;
+}
+.release-job > div:first-child { display: grid; gap: 5px; }
+.release-job span,
+.release-job p { color: #756b7c; font-size: 12px; }
+.release-job p { margin: 0; color: #a34232; white-space: pre-wrap; }
 .release-list li {
   display: flex;
   justify-content: space-between;

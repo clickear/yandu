@@ -12,6 +12,9 @@ import com.yandu.translation.MachineTranslationApplicationService.JobStateConfli
 import com.yandu.translation.MachineTranslationApplicationService.ProviderNotConfiguredException;
 import com.yandu.release.ReleaseApplicationService.ReleaseGateException;
 import com.yandu.release.ReleaseApplicationService.ReleaseNotFoundException;
+import com.yandu.release.ReleaseApplicationService.ReleaseJobNotFoundException;
+import com.yandu.release.ReleaseApplicationService.ReleaseJobStateConflictException;
+import com.yandu.release.ReleaseApplicationService.ReleaseIdempotencyConflictException;
 import com.yandu.imports.ImportApplicationService.IdempotencyConflictException;
 import com.yandu.imports.ImportApplicationService.ImportJobNotFoundException;
 import com.yandu.imports.ImportApplicationService.ImportPreviewConflictException;
@@ -37,7 +40,7 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler({CatalogEntryNotFoundException.class, ProjectNotFoundException.class,
             UserNotFoundException.class, TranslationNotFoundException.class,
-            ReleaseNotFoundException.class, ImportJobNotFoundException.class,
+            ReleaseNotFoundException.class, ReleaseJobNotFoundException.class, ImportJobNotFoundException.class,
             MigrationNotFoundException.class, JobNotFoundException.class})
     ProblemDetail notFound(RuntimeException exception) {
         return problem(HttpStatus.NOT_FOUND, "Resource not found", exception.getMessage());
@@ -59,7 +62,8 @@ public class ApiExceptionHandler {
     }
 
     @ExceptionHandler({com.yandu.translation.MachineTranslationApplicationService.IdempotencyConflictException.class,
-            JobStateConflictException.class})
+            JobStateConflictException.class, ReleaseJobStateConflictException.class,
+            ReleaseIdempotencyConflictException.class})
     ProblemDetail jobConflict(RuntimeException exception) {
         return problem(HttpStatus.CONFLICT, "Machine translation job conflict", exception.getMessage());
     }

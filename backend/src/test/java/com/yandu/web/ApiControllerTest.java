@@ -134,4 +134,25 @@ class ApiControllerTest {
                 .andExpect(jsonPath("$.latestReviewDecision").value("REQUEST_CHANGES"))
                 .andExpect(jsonPath("$.latestReviewReason").value("Clarify terminology"));
     }
+
+    @Test
+    void releaseRequestReturnsDurableJobForPolling() throws Exception {
+        given(actors.resolve(any())).willReturn(41L);
+        var createdAt = java.time.Instant.parse("2026-10-01T12:00:00Z");
+        given(releases.requestPublish(any(), org.mockito.ArgumentMatchers.eq("release-key-1")))
+                .willReturn(new ReleaseApplicationService.ReleaseJobView("70", "10", "en-US",
+                        "json-flat-v1", "QUEUED", null, null, createdAt, createdAt));
+
+        mvc.perform(post("/api/v1/projects/10/releases")
+                        .with(jwt().jwt(token -> token.subject("external-subject")))
+                        .header("Idempotency-Key", "release-key-1")
+                        .contentType("application/json")
+                        .content("{\"locale\":\"en-US\",\"format\":\"json-flat-v1\"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("QUEUED"))
+                .andExpect(jsonPath("$.id").value("70"));
+
+        verify(releases).requestPublish(new ReleaseApplicationService.PublishRelease(
+                41L, 10L, "en-US", "json-flat-v1"), "release-key-1");
+    }
 }

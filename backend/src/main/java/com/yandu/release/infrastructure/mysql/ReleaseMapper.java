@@ -11,6 +11,7 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 @Mapper
 public interface ReleaseMapper extends BaseMapper<ReleaseMapper.ReleaseRow> {
@@ -79,6 +80,66 @@ public interface ReleaseMapper extends BaseMapper<ReleaseMapper.ReleaseRow> {
                                    @Param("locale") String locale,
                                    @Param("format") String format,
                                    @Param("limit") int limit);
+
+    @Select("SELECT * FROM release_jobs WHERE project_id = #{projectId} AND id = #{jobId}")
+    ReleaseJobRow findJob(@Param("projectId") long projectId, @Param("jobId") long jobId);
+
+    @Select("SELECT * FROM release_jobs WHERE project_id = #{projectId} AND id = #{jobId} FOR UPDATE")
+    ReleaseJobRow findJobForUpdate(@Param("projectId") long projectId, @Param("jobId") long jobId);
+
+    @Select("SELECT * FROM release_jobs WHERE project_id = #{projectId} AND created_by = #{actorId} AND idempotency_key = #{key}")
+    ReleaseJobRow findJobByKey(@Param("projectId") long projectId,
+                               @Param("actorId") long actorId, @Param("key") String key);
+
+    @Select("SELECT * FROM release_jobs WHERE status = 'QUEUED' ORDER BY created_at, id LIMIT #{limit}")
+    List<ReleaseJobRow> findQueuedJobs(@Param("limit") int limit);
+
+    @Insert("""
+            INSERT INTO release_jobs
+              (id, project_id, locale, format, idempotency_key, request_hash, status,
+               created_by, created_at, updated_at)
+            VALUES (#{id}, #{projectId}, #{locale}, #{format}, #{idempotencyKey},
+                    #{requestHash}, #{status}, #{createdBy}, #{createdAt}, #{updatedAt})
+            """)
+    int insertJob(ReleaseJobRow row);
+
+    @Update("UPDATE release_jobs SET status = 'RUNNING', updated_at = #{updatedAt} WHERE id = #{jobId} AND status = 'QUEUED'")
+    int claimJob(@Param("jobId") long jobId, @Param("updatedAt") Instant updatedAt);
+
+    @Update("UPDATE release_jobs SET status = 'COMPLETED', release_id = #{releaseId}, error = NULL, updated_at = #{updatedAt} WHERE id = #{jobId} AND status = 'RUNNING'")
+    int completeJob(@Param("jobId") long jobId, @Param("releaseId") long releaseId,
+                    @Param("updatedAt") Instant updatedAt);
+
+    @Update("UPDATE release_jobs SET status = 'FAILED', error = #{error}, updated_at = #{updatedAt} WHERE id = #{jobId} AND status = 'RUNNING'")
+    int failJob(@Param("jobId") long jobId, @Param("error") String error,
+                @Param("updatedAt") Instant updatedAt);
+
+    @Update("UPDATE release_jobs SET status = 'QUEUED', error = NULL, updated_at = #{updatedAt} WHERE project_id = #{projectId} AND id = #{jobId} AND status = 'FAILED'")
+    int retryJob(@Param("projectId") long projectId, @Param("jobId") long jobId,
+                 @Param("updatedAt") Instant updatedAt);
+
+    @Update("UPDATE release_jobs SET status = 'QUEUED', error = 'Worker lease expired; retrying', updated_at = #{updatedAt} WHERE status = 'RUNNING' AND updated_at < #{runningBefore}")
+    int recoverStaleJobs(@Param("runningBefore") Instant runningBefore,
+                         @Param("updatedAt") Instant updatedAt);
+
+    @TableName("release_jobs")
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    class ReleaseJobRow {
+        private Long id;
+        private Long projectId;
+        private String locale;
+        private String format;
+        private String idempotencyKey;
+        private String requestHash;
+        private String status;
+        private Long releaseId;
+        private String error;
+        private Long createdBy;
+        private Instant createdAt;
+        private Instant updatedAt;
+    }
 
     @Getter
     @Setter

@@ -41,7 +41,71 @@ class ReleaseTest {
                 "10", "41", "Store", "zh-CN", Set.of("en-US"), 1, "11"));
         service = new ReleaseApplicationService(repository, workspace, access, () -> nextId[0]++,
                 Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), java.time.ZoneOffset.UTC),
-                new ObjectMapper(), mock(AuditLog.class));
+                new ObjectMapper(), mock(AuditLog.class), Runnable::run,
+                testTransactionManager());
+    }
+
+    @Test
+    void queuesReleaseOnceForAnIdempotentRequest() {
+        var job = new ReleaseRepository.ReleaseJob(300L, 10L, "en-US", "json-flat-v1",
+                "publish-1", java.util.HexFormat.of().formatHex(sha256("en-US\njson-flat-v1")),
+                "QUEUED", null, null, 41L,
+                Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-01-01T00:00:00Z"));
+        given(repository.findJobByKey(10L, 41L, "publish-1"))
+                .willReturn(Optional.empty(), Optional.of(job));
+        org.mockito.Mockito.doNothing().when(repository).insertJob(org.mockito.ArgumentMatchers.any());
+
+        var first = service.requestPublish(new ReleaseApplicationService.PublishRelease(
+                41L, 10L, "en-US", ReleaseApplicationService.JSON_FLAT), "publish-1");
+        var repeated = service.requestPublish(new ReleaseApplicationService.PublishRelease(
+                41L, 10L, "en-US", ReleaseApplicationService.JSON_FLAT), "publish-1");
+
+        assertEquals(first.id(), repeated.id());
+        assertEquals("QUEUED", repeated.status());
+        verify(repository).insertJob(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void queuedReleaseBuildsSnapshotAndCompletesJob() {
+        var queued = new ReleaseRepository.ReleaseJob(70L, 10L, "en-US", "json-flat-v1",
+                "publish-1", "hash", "QUEUED", null, null, 41L,
+                Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-01-01T00:00:00Z"));
+        var running = new ReleaseRepository.ReleaseJob(70L, 10L, "en-US", "json-flat-v1",
+                "publish-1", "hash", "RUNNING", null, null, 41L,
+                Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-01-01T00:00:00Z"));
+        given(repository.findQueuedJobs(20)).willReturn(List.of(queued));
+        given(repository.claimJob(org.mockito.ArgumentMatchers.eq(70L), org.mockito.ArgumentMatchers.any()))
+                .willReturn(true);
+        given(repository.findJobForUpdate(10L, 70L)).willReturn(Optional.of(running));
+        given(repository.lines(10L, "en-US")).willReturn(List.of(new ReleaseLine(20L, "home.title",
+                "Hello", 3, "Bonjour", "APPROVED", 3, 2)));
+        given(repository.create(org.mockito.ArgumentMatchers.eq(300L),
+                org.mockito.ArgumentMatchers.eq(10L), org.mockito.ArgumentMatchers.eq("en-US"),
+                org.mockito.ArgumentMatchers.eq(ReleaseApplicationService.JSON_FLAT),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq(41L), org.mockito.ArgumentMatchers.any()))
+                .willAnswer(call -> new ReleaseRepository.ReleaseSnapshot(300L, 10L, "en-US",
+                        call.getArgument(3), 1, null, call.getArgument(4), call.getArgument(5),
+                        call.getArgument(7), 41L, Instant.parse("2026-01-01T00:00:00Z")));
+        given(repository.completeJob(org.mockito.ArgumentMatchers.eq(70L),
+                org.mockito.ArgumentMatchers.eq(300L), org.mockito.ArgumentMatchers.any())).willReturn(true);
+
+        service.dispatchQueuedJobs();
+
+        verify(repository).completeJob(org.mockito.ArgumentMatchers.eq(70L),
+                org.mockito.ArgumentMatchers.eq(300L), org.mockito.ArgumentMatchers.any());
+    }
+
+    private static org.springframework.transaction.PlatformTransactionManager testTransactionManager() {
+        return new org.springframework.transaction.PlatformTransactionManager() {
+            @Override public org.springframework.transaction.TransactionStatus getTransaction(
+                    org.springframework.transaction.TransactionDefinition definition) {
+                return new org.springframework.transaction.support.SimpleTransactionStatus();
+            }
+            @Override public void commit(org.springframework.transaction.TransactionStatus status) { }
+            @Override public void rollback(org.springframework.transaction.TransactionStatus status) { }
+        };
     }
 
     @Test

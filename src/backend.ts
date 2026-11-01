@@ -382,6 +382,28 @@ export type RemoteRelease = {
   publishedBy: string; publishedAt: string
 }
 
+export type RemoteReleaseJob = {
+  id: string; projectId: string; locale: string; format: 'json-flat-v1' | 'java-properties-v1'
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED'
+  releaseId: string | null; error: string | null; createdAt: string; updatedAt: string
+}
+
+export function requestRemoteRelease(projectId: string, locale: string,
+                                     format: 'json-flat-v1' | 'java-properties-v1', idempotencyKey: string) {
+  return request<RemoteReleaseJob>(`/projects/${projectId}/releases`, {
+    method: 'POST', headers: { 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ locale, format }),
+  })
+}
+
+export function getRemoteReleaseJob(projectId: string, jobId: string) {
+  return request<RemoteReleaseJob>(`/projects/${projectId}/releases/jobs/${jobId}`)
+}
+
+export function retryRemoteReleaseJob(projectId: string, jobId: string) {
+  return request<RemoteReleaseJob>(`/projects/${projectId}/releases/jobs/${jobId}/retry`, { method: 'POST' })
+}
+
 export function listRemoteReleases(projectId: string, locale: string) {
   return request<RemoteRelease[]>(`/projects/${projectId}/releases?locale=${encodeURIComponent(locale)}`)
 }
@@ -399,15 +421,14 @@ async function fetchRemoteReleaseContent(projectId: string, releaseId: string, f
   return { content: await response.text(), extension: format === 'java-properties-v1' ? 'properties' : 'json' }
 }
 
-export async function downloadRemoteRelease(projectId: string, locale: string, format: 'json-flat-v1' | 'java-properties-v1') {
-  const release = await request<RemoteRelease>(`/projects/${projectId}/releases`, {
-    method: 'POST', body: JSON.stringify({ locale, format }),
-  })
-  return { release, ...(await fetchRemoteReleaseContent(projectId, release.id, format)) }
-}
-
 export function downloadRemoteReleaseSnapshot(projectId: string, release: RemoteRelease) {
   return fetchRemoteReleaseContent(projectId, release.id, release.format)
+}
+
+export async function downloadRemoteReleaseJobResult(projectId: string, job: RemoteReleaseJob) {
+  if (job.status !== 'COMPLETED' || !job.releaseId) throw new Error('发布任务尚未完成。')
+  const release = await request<RemoteRelease>(`/projects/${projectId}/releases/${job.releaseId}`)
+  return { release, ...(await fetchRemoteReleaseContent(projectId, release.id, release.format)) }
 }
 
 export function loadMemorySuggestions(projectId: string, entryId: string, locale: string) {

@@ -6,19 +6,29 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yandu.release.application.ReleaseRepository;
 import com.yandu.release.application.ReleaseRepository.ReleaseLine;
 import com.yandu.release.application.ReleaseRepository.ReleaseSnapshot;
+import com.yandu.release.application.ReleaseRepository.ReleaseJob;
 import com.yandu.workspace.ProjectAccessPolicy;
 import com.yandu.workspace.WorkspaceApplicationService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /** Builds, stores and reads immutable localization release snapshots. */
 @Service
@@ -34,10 +44,15 @@ public class ReleaseApplicationService {
     private final Clock clock;
     private final ObjectMapper json;
     private final AuditLog audit;
+    private final TaskExecutor executor;
+    private final TransactionTemplate transactions;
+    private final Set<Long> scheduledJobs = ConcurrentHashMap.newKeySet();
 
     public ReleaseApplicationService(ReleaseRepository releases, WorkspaceApplicationService workspace,
                                     ProjectAccessPolicy access, LongSupplier ids, Clock clock,
-                                    ObjectMapper json, AuditLog audit) {
+                                    ObjectMapper json, AuditLog audit,
+                                    @Qualifier("importTaskExecutor") TaskExecutor executor,
+                                    PlatformTransactionManager transactionManager) {
         this.releases = Objects.requireNonNull(releases);
         this.workspace = Objects.requireNonNull(workspace);
         this.access = Objects.requireNonNull(access);
@@ -45,12 +60,118 @@ public class ReleaseApplicationService {
         this.clock = Objects.requireNonNull(clock);
         this.json = Objects.requireNonNull(json);
         this.audit = Objects.requireNonNull(audit);
+        this.executor = Objects.requireNonNull(executor);
+        this.transactions = new TransactionTemplate(Objects.requireNonNull(transactionManager));
+    }
+
+    @Transactional
+    public ReleaseJobView requestPublish(PublishRelease command, String idempotencyKey) {
+        access.requireCanPublish(command.actorId(), command.projectId());
+        var project = workspace.getProject(command.actorId(), command.projectId());
+        requireActiveProject(project);
+        var locale = WorkspaceApplicationService.normalizeLocale(command.locale());
+        if (!project.targetLocales().contains(locale)) {
+            throw new IllegalArgumentException("Release locale is not configured for this project");
+        }
+        if (idempotencyKey == null || !idempotencyKey.matches("[A-Za-z0-9._:-]{1,128}")) {
+            throw new IllegalArgumentException("A valid Idempotency-Key header is required");
+        }
+        var hash = sha256(locale + "\n" + command.format());
+        var existing = releases.findJobByKey(command.projectId(), command.actorId(), idempotencyKey);
+        if (existing.isPresent()) return existing(existing.get(), hash);
+        var now = clock.instant();
+        var job = new ReleaseJob(ids.getAsLong(), command.projectId(), locale, command.format(),
+                idempotencyKey, hash, "QUEUED", null, null, command.actorId(), now, now);
+        try {
+            releases.insertJob(job);
+        } catch (DataIntegrityViolationException duplicate) {
+            var winner = releases.findJobByKey(command.projectId(), command.actorId(), idempotencyKey)
+                    .orElseThrow(() -> duplicate);
+            return existing(winner, hash);
+        }
+        audit.record(command.projectId(), command.actorId(), "RELEASE_QUEUED", "RELEASE_JOB",
+                job.id(), java.util.Map.of("locale", locale, "format", command.format()));
+        return jobView(job);
+    }
+
+    private static ReleaseJobView existing(ReleaseJob job, String requestHash) {
+        if (!job.requestHash().equals(requestHash)) throw new ReleaseIdempotencyConflictException();
+        return jobView(job);
+    }
+
+    @Transactional(readOnly = true)
+    public ReleaseJobView getJob(long actorId, long projectId, long jobId) {
+        access.requireCanReadProject(actorId, projectId);
+        return jobView(releases.findJob(projectId, jobId)
+                .orElseThrow(() -> new ReleaseJobNotFoundException(jobId)));
+    }
+
+    @Transactional
+    public ReleaseJobView retryJob(long actorId, long projectId, long jobId) {
+        access.requireCanPublish(actorId, projectId);
+        requireActiveProject(workspace.getProject(actorId, projectId));
+        var job = releases.findJob(projectId, jobId)
+                .orElseThrow(() -> new ReleaseJobNotFoundException(jobId));
+        if (!"FAILED".equals(job.status()) || !releases.retryJob(projectId, jobId, clock.instant())) {
+            throw new ReleaseJobStateConflictException(jobId);
+        }
+        audit.record(projectId, actorId, "RELEASE_RETRIED", "RELEASE_JOB", jobId,
+                java.util.Map.of("locale", job.locale(), "format", job.format()));
+        return jobView(releases.findJob(projectId, jobId).orElseThrow());
+    }
+
+    /** A durable database queue remains authoritative across application restarts. */
+    @Scheduled(fixedDelayString = "${yandu.release.poll-ms:1000}")
+    public void dispatchQueuedJobs() {
+        var now = clock.instant();
+        releases.recoverStaleJobs(now.minus(Duration.ofMinutes(30)), now);
+        for (var job : releases.findQueuedJobs(20)) {
+            if (!scheduledJobs.add(job.id())) continue;
+            try {
+                executor.execute(() -> {
+                    try { processJob(job); }
+                    finally { scheduledJobs.remove(job.id()); }
+                });
+            } catch (RuntimeException rejected) {
+                scheduledJobs.remove(job.id());
+            }
+        }
+    }
+
+    private void processJob(ReleaseJob queued) {
+        boolean claimed = Boolean.TRUE.equals(transactions.execute(status ->
+                releases.claimJob(queued.id(), clock.instant())));
+        if (!claimed) return;
+        try {
+            transactions.executeWithoutResult(status -> {
+                var job = releases.findJobForUpdate(queued.projectId(), queued.id())
+                        .orElseThrow(() -> new ReleaseJobNotFoundException(queued.id()));
+                var snapshot = publish(new PublishRelease(job.createdBy(), job.projectId(),
+                        job.locale(), job.format()));
+                if (!releases.completeJob(job.id(), Long.parseLong(snapshot.id()), clock.instant())) {
+                    throw new ReleaseJobStateConflictException(job.id());
+                }
+            });
+        } catch (RuntimeException failure) {
+            var error = failure instanceof ReleaseGateException gate
+                    ? String.join("\n", gate.failures())
+                    : "发布任务执行失败，请稍后重试。";
+            if (error.length() > 2000) error = error.substring(0, 2000);
+            var safeError = error;
+            transactions.executeWithoutResult(status -> {
+                if (releases.failJob(queued.id(), safeError, clock.instant())) {
+                    audit.record(queued.projectId(), queued.createdBy(), "RELEASE_FAILED", "RELEASE_JOB",
+                            queued.id(), java.util.Map.of("error", safeError));
+                }
+            });
+        }
     }
 
     @Transactional
     public ReleaseView publish(PublishRelease command) {
         access.requireCanPublish(command.actorId(), command.projectId());
         var project = workspace.getProject(command.actorId(), command.projectId());
+        requireActiveProject(project);
         var locale = WorkspaceApplicationService.normalizeLocale(command.locale());
         var format = normalizeFormat(command.format());
         if (!project.targetLocales().contains(locale)) {
@@ -89,6 +210,12 @@ public class ReleaseApplicationService {
                 stored.id(), java.util.Map.of("locale", locale, "format", format, "version", stored.version(),
                         "checksumSha256", checksum, "entryCount", content.size()));
         return view(stored, content.size());
+    }
+
+    private static void requireActiveProject(WorkspaceApplicationService.ProjectView project) {
+        if (!"ACTIVE".equals(project.status())) {
+            throw new IllegalStateException("归档项目不能创建新发布任务。");
+        }
     }
 
     @Transactional
@@ -260,6 +387,12 @@ public class ReleaseApplicationService {
                 snapshot.checksum(), entryCount, Long.toString(snapshot.publishedBy()), snapshot.publishedAt());
     }
 
+    private static ReleaseJobView jobView(ReleaseJob job) {
+        return new ReleaseJobView(Long.toString(job.id()), Long.toString(job.projectId()), job.locale(),
+                job.format(), job.status(), job.releaseId() == null ? null : Long.toString(job.releaseId()),
+                job.error(), job.createdAt(), job.updatedAt());
+    }
+
     public record PublishRelease(long actorId, long projectId, String locale, String format) {
         public PublishRelease(long actorId, long projectId, String locale) {
             this(actorId, projectId, locale, JSON_FLAT);
@@ -282,6 +415,10 @@ public class ReleaseApplicationService {
                                  String rollbackOfReleaseId, String checksumSha256, int entryCount,
                                  String publishedBy, java.time.Instant publishedAt) { }
 
+    public record ReleaseJobView(String id, String projectId, String locale, String format,
+                                 String status, String releaseId, String error,
+                                 java.time.Instant createdAt, java.time.Instant updatedAt) { }
+
     public record ReleaseManifest(String format, String locale, List<ManifestEntry> entries,
                                   List<String> passedQualityRules) { }
 
@@ -300,6 +437,20 @@ public class ReleaseApplicationService {
     public static final class ReleaseNotFoundException extends RuntimeException {
         public ReleaseNotFoundException(long releaseId) {
             super("Release not found: " + releaseId);
+        }
+    }
+
+    public static final class ReleaseJobNotFoundException extends RuntimeException {
+        public ReleaseJobNotFoundException(long jobId) { super("Release job was not found: " + jobId); }
+    }
+
+    public static final class ReleaseJobStateConflictException extends RuntimeException {
+        public ReleaseJobStateConflictException(long jobId) { super("Release job state changed: " + jobId); }
+    }
+
+    public static final class ReleaseIdempotencyConflictException extends RuntimeException {
+        public ReleaseIdempotencyConflictException() {
+            super("This Idempotency-Key was already used for a different release request");
         }
     }
 }

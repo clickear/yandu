@@ -18,6 +18,26 @@ public interface ReleaseRepository {
 
     List<ReleaseLine> lines(long projectId, String locale);
 
+    Optional<ReleaseJob> findJob(long projectId, long jobId);
+
+    Optional<ReleaseJob> findJobForUpdate(long projectId, long jobId);
+
+    Optional<ReleaseJob> findJobByKey(long projectId, long actorId, String idempotencyKey);
+
+    List<ReleaseJob> findQueuedJobs(int limit);
+
+    void insertJob(ReleaseJob job);
+
+    boolean claimJob(long jobId, Instant updatedAt);
+
+    boolean completeJob(long jobId, long releaseId, Instant updatedAt);
+
+    boolean failJob(long jobId, String error, Instant updatedAt);
+
+    boolean retryJob(long projectId, long jobId, Instant updatedAt);
+
+    int recoverStaleJobs(Instant runningBefore, Instant updatedAt);
+
     record ReleaseSnapshot(long id, long projectId, String locale, String format, long version,
                            Long rollbackOfReleaseId,
                            String content, String manifest, String checksum,
@@ -26,4 +46,9 @@ public interface ReleaseRepository {
     record ReleaseLine(long entryId, String key, String sourceText, long sourceRevision,
                        String translation, String status, long translationSourceRevision,
                        long translationVersion) { }
+
+    record ReleaseJob(long id, long projectId, String locale, String format,
+                      String idempotencyKey, String requestHash, String status,
+                      Long releaseId, String error, long createdBy,
+                      Instant createdAt, Instant updatedAt) { }
 }

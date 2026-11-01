@@ -426,13 +426,27 @@ public class ApiController {
     }
 
     @PostMapping("/projects/{projectId}/releases")
-    @ResponseStatus(HttpStatus.CREATED)
-    public ReleaseApplicationService.ReleaseSummary publishRelease(
-            @AuthenticationPrincipal Jwt principal,
-            @PathVariable long projectId,
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public ReleaseApplicationService.ReleaseJobView requestRelease(
+            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody PublishReleaseBody body) {
-        return ReleaseApplicationService.summary(releases.publish(new ReleaseApplicationService.PublishRelease(
-                actors.resolve(principal), projectId, body.locale(), body.format())));
+        return releases.requestPublish(new ReleaseApplicationService.PublishRelease(
+                actors.resolve(principal), projectId, body.locale(), body.format()), idempotencyKey);
+    }
+
+    @GetMapping("/projects/{projectId}/releases/jobs/{jobId}")
+    public ReleaseApplicationService.ReleaseJobView releaseJob(
+            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+            @PathVariable long jobId) {
+        return releases.getJob(actors.resolve(principal), projectId, jobId);
+    }
+
+    @PostMapping("/projects/{projectId}/releases/jobs/{jobId}/retry")
+    public ReleaseApplicationService.ReleaseJobView retryReleaseJob(
+            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+            @PathVariable long jobId) {
+        return releases.retryJob(actors.resolve(principal), projectId, jobId);
     }
 
     @GetMapping("/projects/{projectId}/releases")

@@ -1,0 +1,22 @@
+CREATE TABLE release_jobs (
+    id BIGINT NOT NULL COMMENT '发布任务标识，由应用层雪花算法生成',
+    project_id BIGINT NOT NULL COMMENT '所属项目标识',
+    locale VARCHAR(35) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '目标语言标签',
+    format VARCHAR(40) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '发布文件格式版本',
+    idempotency_key VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '客户端提供的幂等键',
+    request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '语言和格式请求摘要，阻止幂等键误复用',
+    status VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '任务状态：QUEUED、RUNNING、COMPLETED 或 FAILED',
+    release_id BIGINT NULL COMMENT '成功创建的不可变发布版本标识',
+    error TEXT CHARACTER SET utf8mb4 NULL COMMENT '发布失败原因，供项目成员查看和重试',
+    created_by BIGINT NOT NULL COMMENT '发起发布任务的项目成员标识',
+    created_at DATETIME(6) NOT NULL COMMENT '创建时间，UTC，微秒精度',
+    updated_at DATETIME(6) NOT NULL COMMENT '最近状态变更时间，UTC，微秒精度',
+    PRIMARY KEY (id),
+    CONSTRAINT uq_release_job_idempotency UNIQUE (project_id, created_by, idempotency_key),
+    CONSTRAINT uq_release_job_project_id UNIQUE (project_id, id),
+    KEY ix_release_jobs_status_created (status, created_at, id),
+    CONSTRAINT ck_release_job_status CHECK (status IN ('QUEUED', 'RUNNING', 'COMPLETED', 'FAILED')),
+    CONSTRAINT fk_release_job_project FOREIGN KEY (project_id) REFERENCES projects (id),
+    CONSTRAINT fk_release_job_creator FOREIGN KEY (created_by) REFERENCES external_identities (user_id),
+    CONSTRAINT fk_release_job_release FOREIGN KEY (project_id, release_id) REFERENCES releases (project_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin COMMENT='持久化异步发布与导出任务';

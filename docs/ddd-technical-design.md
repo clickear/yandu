@@ -76,7 +76,7 @@ flowchart LR
 | Translation Workflow | 单语言译文、草稿/审核状态、乐观锁、审核历史 | `translations`、`translation_revisions`、`review_decisions` | 保存/送审/批准/退回命令，翻译事件 |
 | Quality Assurance | 必填、占位符一致、格式约束与质量报告 | 规则配置、可重建质量报告 | 同步校验 API、异步批量校验、门禁判定 |
 | Terminology & Memory | 术语、翻译记忆条目与建议 | `glossary_terms`、`translation_memory` | 权限过滤后的只读建议 API |
-| Import & Export | 文件解析、预览差异、幂等导入、导出任务 | `import_jobs`、`import_rows`、`export_jobs`、对象引用 | 任务状态 API、应用结果事件、临时下载地址 |
+| Import & Export | 文件解析、预览差异、幂等导入、导出任务 | `import_jobs`、`import_rows`、发布上下文的 `release_jobs`、对象引用 | 任务状态 API、应用结果事件、临时下载地址 |
 | Release Management | 发布门禁、不可变资源包、回滚编排 | `releases`、`release_artifacts`、清单/校验和 | 创建、下载、回滚命令，发布事件 |
 | Audit & Operations | 安全相关审计、健康、任务可观测性 | `audit_events`、操作失败分类、运维指标 | 审计查询和运维只读接口 |
 
@@ -344,7 +344,9 @@ erDiagram
 | `POST /api/v1/projects/{projectId}/machine-translation-jobs/{jobId}/retry` | 重试失败项 | 管理翻译权限；只重排失败项 |
 | `GET /api/v1/import-jobs/{jobId}` | 查看任务和预览分页 | 请求时重新授权 |
 | `POST /api/v1/import-jobs/{jobId}/apply` | 应用预览 | 必传 `previewHash` 和幂等键 |
-| `POST /api/v1/projects/{projectId}/releases` | 检查门禁并生成发布 | 202; 固定目标版本/格式 |
+| `POST /api/v1/projects/{projectId}/releases` | 按 `Idempotency-Key` 创建持久化发布任务 | 202; 固定目标语言/格式 |
+| `GET /api/v1/projects/{projectId}/releases/jobs/{jobId}` | 查看发布任务状态和失败原因 | 每次读取重新授权 |
+| `POST /api/v1/projects/{projectId}/releases/jobs/{jobId}/retry` | 重试失败的发布任务 | 仅失败任务可重试；要求发布权限 |
 | `GET /api/v1/releases/{releaseId}` | 查看不可变发布及质量证据 | 重新授权 |
 | `GET /api/v1/releases/{releaseId}/artifact` | 下载发布包 | 短时、单次或受控下载链接 |
 | `POST /api/v1/releases/{releaseId}/rollback` | 创建指向旧快照的新发布 | 新 release id，不篡改历史 |
