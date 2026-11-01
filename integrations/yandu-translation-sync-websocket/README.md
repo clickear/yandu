@@ -1,6 +1,6 @@
-# YANDU WebSocket sync adapter
+# YANDU WebSocket sync module
 
-Optional client transport for `yandu-translation-spring-boot-starter`. Add this artifact when a consumer selects WebSocket; it uses the JDK WebSocket client and does not add Netty.
+Optional WebSocket transport for the YANDU backend and `yandu-translation-spring-boot-starter` consumers. Add this artifact when WebSocket is selected; it uses the JDK WebSocket client and does not add Netty. The backend activates it with the `sync-websocket` Maven profile.
 
 ```yaml
 yandu:

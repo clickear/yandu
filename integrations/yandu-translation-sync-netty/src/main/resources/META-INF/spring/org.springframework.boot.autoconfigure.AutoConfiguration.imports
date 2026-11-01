@@ -1,1 +1,2 @@
 com.yandu.consumer.netty.NettySyncAutoConfiguration
+com.yandu.sync.netty.NettyReleaseSyncAutoConfiguration

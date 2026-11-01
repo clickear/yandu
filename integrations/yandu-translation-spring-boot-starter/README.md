@@ -4,7 +4,7 @@ Base consumer integration module for Spring Boot 3.5 / Java 21 applications. It 
 
 ## Build and install locally
 
-The root Maven project aggregates the backend and consumer artifacts without making the backend depend on consumer transports. Build the base starter and only the selected transport from the repository root:
+The root Maven project aggregates the backend and optional consumer artifacts. The backend adds its server transport only through the matching Maven profile; consumer applications add the base starter and only their selected transport. Build the base starter and only the selected artifact from the repository root:
 
 ```sh
 mvn -pl integrations/yandu-translation-spring-boot-starter -am install

@@ -1,1 +1,2 @@
 com.yandu.consumer.websocket.WebSocketSyncAutoConfiguration
+com.yandu.sync.websocket.PublicReleaseWebSocketAutoConfiguration

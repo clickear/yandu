@@ -12,6 +12,7 @@
     <description>YANDU translation platform and optional consumer integrations.</description>
 
     <modules>
+        <module>integrations/yandu-translation-sync-contract</module>
         <module>backend</module>
         <module>integrations/yandu-translation-spring-boot-starter</module>
         <module>integrations/yandu-translation-sync-netty</module>

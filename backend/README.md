@@ -29,7 +29,8 @@ export YANDU_MT_MODEL='your-model-name'
 export YANDU_MT_API_KEY=''
 # Add the deployed React origin to this comma-separated allowlist.
 export YANDU_CORS_ALLOWED_ORIGINS='http://localhost:5173'
-mvn spring-boot:run
+# Run from the repository root so Maven also builds the shared sync contract.
+mvn -pl backend -am spring-boot:run
 ```
 
 Flyway applies versioned schema migrations from `src/main/resources/db/migration`. Do not point the service at the product database until the identity, authorization, backup and migration processes are configured.
@@ -46,7 +47,7 @@ The React client can use the local browser prototype or the API mode. To enable 
 
 ## Published translation consumers
 
-Consumer reads are public and limited to already published snapshots. The HTTP snapshot API is available at `/api/v1/public/projects/{projectId}/translations/{locale}/latest` and its `/content` child. The WebSocket endpoint is `/api/v1/public/translations/ws`. Netty TCP notification is opt-in: set `YANDU_NETTY_SYNC_ENABLED=true` and optionally `YANDU_NETTY_SYNC_PORT` (default `9091`). Each long connection sends a JSON `subscribe` message with `projectId`, `locale`, `format` and optional `afterChecksum`; notifications contain metadata only, and consumers fetch and verify the HTTP snapshot. Heartbeats prompt metadata refresh so consumers recover from reconnects and updates published by another application node. These interfaces do not change OIDC protection on workspace APIs.
+Consumer reads are public and limited to already published snapshots. The HTTP snapshot API is available at `/api/v1/public/projects/{projectId}/translations/{locale}/latest` and its `/content` child. Realtime transports are optional modules: start with `mvn -pl backend -am -Psync-netty spring-boot:run` to add Netty TCP, or `mvn -pl backend -am -Psync-websocket spring-boot:run` to add WebSocket. Both profiles can be selected together when both server transports are needed. Netty listens on `YANDU_NETTY_SYNC_PORT` (default `9091`) when `YANDU_NETTY_SYNC_ENABLED=true`; WebSocket listens at `/api/v1/public/translations/ws` when `YANDU_SYNC_WEBSOCKET_ENABLED=true`. Each long connection sends a JSON `subscribe` message with `projectId`, `locale`, `format` and optional `afterChecksum`; notifications contain metadata only, and consumers fetch and verify the HTTP snapshot. Heartbeats prompt metadata refresh so consumers recover from reconnects and updates published by another application node. These interfaces do not change OIDC protection on workspace APIs.
 
 ## Tests
 

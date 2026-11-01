@@ -70,6 +70,7 @@ yandu:
     poll-ms: ${YANDU_MT_POLL_MS:2000}
   sync:
     websocket:
+      enabled: ${YANDU_SYNC_WEBSOCKET_ENABLED:false}
       heartbeat-ms: ${YANDU_SYNC_HEARTBEAT_MS:25000}
     netty:
       enabled: ${YANDU_NETTY_SYNC_ENABLED:false}

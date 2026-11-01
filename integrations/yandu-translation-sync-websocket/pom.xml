@@ -19,6 +19,15 @@
     <dependencies>
         <dependency>
             <groupId>com.yandu</groupId>
+            <artifactId>yandu-translation-sync-contract</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.yandu</groupId>
             <artifactId>yandu-translation-spring-boot-starter</artifactId>
             <version>${project.version}</version>
         </dependency>

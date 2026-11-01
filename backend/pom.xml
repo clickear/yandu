@@ -21,7 +21,6 @@
         <java.version>21</java.version>
         <mybatis-plus.version>3.5.17</mybatis-plus.version>
         <spring-modulith.version>1.4.13</spring-modulith.version>
-        <netty.version>4.1.135.Final</netty.version>
     </properties>
 
     <dependencyManagement>
@@ -42,23 +41,9 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-websocket</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-transport</artifactId>
-            <version>${netty.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-codec</artifactId>
-            <version>${netty.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-handler</artifactId>
-            <version>${netty.version}</version>
+            <groupId>com.yandu</groupId>
+            <artifactId>yandu-translation-sync-contract</artifactId>
+            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -130,4 +115,27 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>sync-netty</id>
+            <dependencies>
+                <dependency>
+                    <groupId>com.yandu</groupId>
+                    <artifactId>yandu-translation-sync-netty</artifactId>
+                    <version>${project.version}</version>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>sync-websocket</id>
+            <dependencies>
+                <dependency>
+                    <groupId>com.yandu</groupId>
+                    <artifactId>yandu-translation-sync-websocket</artifactId>
+                    <version>${project.version}</version>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
 </project>

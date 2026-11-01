@@ -1,30 +1,25 @@
-package com.yandu.web;
+package com.yandu.sync.websocket;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.yandu.release.ReleaseApplicationService;
-import com.yandu.release.ReleasePublishedEvent;
+import com.yandu.sync.ReleaseSyncProtocol;
+import com.yandu.sync.ReleaseSyncService;
 import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
-@Component
 public class PublicReleaseWebSocketHandler extends TextWebSocketHandler {
 
     private static final String REGISTRATION = PublicReleaseWebSocketHandler.class.getName() + ".registration";
     private final ObjectMapper json;
-    private final ReleaseChangeHub hub;
-    private final ReleaseApplicationService releases;
+    private final ReleaseSyncService releases;
     private final ConcurrentHashMap<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
 
-    public PublicReleaseWebSocketHandler(ObjectMapper json, ReleaseChangeHub hub,
-                                         ReleaseApplicationService releases) {
+    public PublicReleaseWebSocketHandler(ObjectMapper json, ReleaseSyncService releases) {
         this.json = json;
-        this.hub = hub;
         this.releases = releases;
     }
 
@@ -38,18 +33,11 @@ public class PublicReleaseWebSocketHandler extends TextWebSocketHandler {
         try {
             var subscription = ReleaseSyncProtocol.subscription(json.readTree(message.getPayload()));
             closeRegistration(session);
-            var registration = hub.subscribe(subscription.projectId(), subscription.locale(), subscription.format(),
-                    event -> sendChanged(session, event));
+            var registration = releases.subscribe(subscription, notice -> sendChanged(session, notice));
             session.getAttributes().put(REGISTRATION, registration);
-            try {
-                var latest = releases.latestPublished(subscription.projectId(), subscription.locale(),
-                        subscription.format());
-                if (!latest.checksumSha256().equals(subscription.afterChecksum())) {
-                    send(session, ReleaseSyncProtocol.changed(latest));
-                }
-            } catch (ReleaseApplicationService.ReleaseNotFoundException noReleaseYet) {
-                // The subscription remains open and will receive the first published release.
-            }
+            releases.latest(subscription).filter(latest ->
+                    !latest.checksumSha256().equals(subscription.afterChecksum()))
+                    .ifPresent(latest -> sendChanged(session, latest));
         } catch (IOException transportFailure) {
             closeSession(session);
         } catch (RuntimeException invalid) {
@@ -71,12 +59,9 @@ public class PublicReleaseWebSocketHandler extends TextWebSocketHandler {
         });
     }
 
-    private void sendChanged(WebSocketSession session, ReleasePublishedEvent event) {
-        try {
-            send(session, ReleaseSyncProtocol.changed(event));
-        } catch (IOException | RuntimeException failure) {
-            closeSession(session);
-        }
+    private void sendChanged(WebSocketSession session, ReleaseSyncService.ReleaseNotice notice) {
+        try { send(session, ReleaseSyncProtocol.changed(notice)); }
+        catch (IOException | RuntimeException failure) { closeSession(session); }
     }
 
     private void closeSession(WebSocketSession session) {

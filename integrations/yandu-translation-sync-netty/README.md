@@ -1,6 +1,6 @@
-# YANDU Netty sync adapter
+# YANDU Netty sync module
 
-Optional client transport for `yandu-translation-spring-boot-starter`. Add this artifact only when the consumer selects Netty; it is the only consumer artifact that brings Netty libraries.
+Optional Netty transport for the YANDU backend and `yandu-translation-spring-boot-starter` consumers. Add this artifact only when Netty is selected; it is the only sync module that brings Netty libraries. The backend activates it with the `sync-netty` Maven profile.
 
 ```yaml
 yandu:

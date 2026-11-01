@@ -1,10 +1,8 @@
-package com.yandu.web.netty;
+package com.yandu.sync.netty;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.yandu.release.ReleaseApplicationService;
-import com.yandu.release.ReleasePublishedEvent;
-import com.yandu.web.ReleaseChangeHub;
-import com.yandu.web.ReleaseSyncProtocol;
+import com.yandu.sync.ReleaseSyncProtocol;
+import com.yandu.sync.ReleaseSyncService;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
@@ -31,18 +29,15 @@ public class NettyReleaseSyncServer implements SmartLifecycle {
     private static final AttributeKey<AutoCloseable> REGISTRATION =
             AttributeKey.valueOf("yandu.releaseSync.registration");
     private final ObjectMapper json;
-    private final ReleaseChangeHub hub;
-    private final ReleaseApplicationService releases;
+    private final ReleaseSyncService releases;
     private final int port;
     private volatile NioEventLoopGroup boss;
     private volatile NioEventLoopGroup workers;
     private volatile Channel serverChannel;
 
-    public NettyReleaseSyncServer(ObjectMapper json, ReleaseChangeHub hub,
-                                  ReleaseApplicationService releases, int port) {
+    public NettyReleaseSyncServer(ObjectMapper json, ReleaseSyncService releases, int port) {
         if (port < 1 || port > 65535) throw new IllegalArgumentException("Netty sync port is invalid");
         this.json = json;
-        this.hub = hub;
         this.releases = releases;
         this.port = port;
     }
@@ -97,18 +92,13 @@ public class NettyReleaseSyncServer implements SmartLifecycle {
             try {
                 var subscription = ReleaseSyncProtocol.subscription(json.readTree(line));
                 closeRegistration(context.channel());
-                var registration = hub.subscribe(subscription.projectId(), subscription.locale(),
-                        subscription.format(), event -> sendChanged(context, event));
+                var registration = releases.subscribe(subscription,
+                        notice -> sendChanged(context, notice));
                 context.channel().attr(REGISTRATION).set(registration);
-                try {
-                    var latest = releases.latestPublished(subscription.projectId(), subscription.locale(),
-                            subscription.format());
-                    if (!latest.checksumSha256().equals(subscription.afterChecksum())) {
-                        context.writeAndFlush(json.writeValueAsString(ReleaseSyncProtocol.changed(latest)) + "\n");
-                    }
-                } catch (ReleaseApplicationService.ReleaseNotFoundException noReleaseYet) {
-                    // The connection waits for the first published snapshot.
-                }
+                releases.latest(subscription).filter(latest ->
+                        !latest.checksumSha256().equals(subscription.afterChecksum()))
+                        .ifPresent(latest -> context.writeAndFlush(
+                                writeChanged(latest) + "\n"));
             } catch (Exception invalid) {
                 try {
                     context.writeAndFlush("{\"type\":\"error\",\"message\":\"Invalid subscription request\"}\n");
@@ -129,14 +119,19 @@ public class NettyReleaseSyncServer implements SmartLifecycle {
             super.channelInactive(context);
         }
 
-        private void sendChanged(ChannelHandlerContext context, ReleasePublishedEvent event) {
+        private void sendChanged(ChannelHandlerContext context, ReleaseSyncService.ReleaseNotice notice) {
             if (!context.channel().isActive()) { closeRegistration(context.channel()); return; }
             try {
-                context.writeAndFlush(json.writeValueAsString(ReleaseSyncProtocol.changed(event)) + "\n");
-            } catch (Exception failure) {
+                context.writeAndFlush(writeChanged(notice) + "\n");
+            } catch (RuntimeException failure) {
                 closeRegistration(context.channel());
                 context.close();
             }
+        }
+
+        private String writeChanged(ReleaseSyncService.ReleaseNotice notice) {
+            try { return json.writeValueAsString(ReleaseSyncProtocol.changed(notice)); }
+            catch (Exception failure) { throw new IllegalStateException("Could not encode release notice", failure); }
         }
 
         private void closeRegistration(Channel channel) {
