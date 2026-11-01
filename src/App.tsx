@@ -92,6 +92,8 @@ import {
   removeRemoteMember,
   leaveRemoteProject,
   archiveRemoteLocale,
+  listRemoteArchivedLocales,
+  restoreRemoteLocale,
   archiveRemoteNamespace,
   createRemoteNamespace,
   listRemoteNamespaces,
@@ -199,6 +201,7 @@ function TranslationEditor({
   onSave,
   onClose,
   backendMode = false,
+  readOnly = false,
   canReview = false,
   onApprove,
   onRequestChanges,
@@ -209,6 +212,7 @@ function TranslationEditor({
   onSave: (value: string, reviewed: boolean) => void | Promise<void>
   onClose: () => void
   backendMode?: boolean
+  readOnly?: boolean
   canReview?: boolean
   onApprove?: () => void | Promise<void>
   onRequestChanges?: (reason: string) => void | Promise<void>
@@ -216,7 +220,7 @@ function TranslationEditor({
   const initial = entry.translations[locale]
   const draftKey = `yandu.translation-draft.v1:${project.id}:${entry.id}:${locale}`
   const [value, setValue] = useState(() => {
-    if (backendMode) {
+    if (backendMode && !readOnly) {
       try {
         const savedDraft = sessionStorage.getItem(draftKey)
         if (savedDraft !== null) return savedDraft
@@ -238,11 +242,12 @@ function TranslationEditor({
   useEffect(() => {
     if (!backendMode) return
     let active = true
+    if (readOnly) return
     void loadMemorySuggestions(project.id, entry.id, locale)
       .then((matches) => { if (active) setSuggestions(matches) })
       .catch(() => { if (active) setSuggestions({ memory: [], terms: [] }) })
     return () => { active = false }
-  }, [backendMode, project.id, entry.id, locale])
+  }, [backendMode, readOnly, project.id, entry.id, locale])
   useEffect(() => {
     if (!backendMode) return
     let active = true
@@ -278,7 +283,7 @@ function TranslationEditor({
     })
   }
   const close = () => {
-    if (!dirty) return onClose()
+    if (readOnly || !dirty) return onClose()
     if (!window.confirm('译文尚未保存，确定放弃修改？')) return
     if (backendMode) {
       try { sessionStorage.removeItem(draftKey) } catch { /* Ignore unavailable session storage. */ }
@@ -286,7 +291,7 @@ function TranslationEditor({
     onClose()
   }
   return (
-    <Modal title="编辑译文" onClose={close} wide>
+    <Modal title={readOnly ? '查看译文' : '编辑译文'} onClose={close} wide>
       <form
         onSubmit={(e) => {
           e.preventDefault()
@@ -318,6 +323,7 @@ function TranslationEditor({
               autoFocus
               rows={7}
               value={value}
+              readOnly={readOnly}
               onChange={(e) => {
                 setValue(e.target.value)
                 setReviewed(false)
@@ -375,7 +381,9 @@ function TranslationEditor({
             </>}
           </section>
         )}
-        {backendMode ? (
+        {readOnly ? (
+          <p className="form-hint">项目或目标语言已归档，当前仅可查看译文和修订历史。</p>
+        ) : backendMode ? (
           <p className="form-hint">可单独保存或送审；审核由其他有权限的成员完成。保存失败时，草稿会留在当前浏览器会话中供恢复。</p>
         ) : (
           <>
@@ -393,8 +401,9 @@ function TranslationEditor({
         )}
         <div className="modal-actions">
           <button type="button" className="button secondary" onClick={close}>
-            取消
+            {readOnly ? '关闭' : '取消'}
           </button>
+          {!readOnly && <>
           {backendMode && canReview && entry.workflowStatuses?.[locale] === 'IN_REVIEW' && (
             <>
               <button type="button" className="button secondary" disabled={dirty} onClick={() => {
@@ -422,6 +431,7 @@ function TranslationEditor({
               <Check size={16} />保存译文
             </button>
           )}
+          </>}
         </div>
       </form>
     </Modal>
@@ -439,6 +449,7 @@ export default function App() {
   const [locale, setLocale] = useState(workspace.projects[0]?.targetLanguages[0] ?? 'en-US')
   const [namespaceId, setNamespaceId] = useState(workspace.projects[0]?.defaultNamespaceId ?? '')
   const [namespaces, setNamespaces] = useState<RemoteNamespace[]>([])
+  const [archivedLocales, setArchivedLocales] = useState<string[]>([])
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('all')
   const [modal, setModal] = useState<'project' | 'entry' | 'language' | 'import' | 'members' | 'glossary' | 'migration' | 'machine-translation' | 'releases' | null>(null)
@@ -553,6 +564,17 @@ export default function App() {
       setNamespaceId((current) => items.some((item) => item.id === current && item.status === 'ACTIVE')
         ? current : items.find((item) => item.status === 'ACTIVE')?.id ?? '')
     }).catch((error: unknown) => { if (active) notify(error instanceof Error ? error.message : '无法读取命名空间。', true) })
+    return () => { active = false }
+  }, [authStatus, projectId, remoteRefresh])
+
+  useEffect(() => {
+    if (!backendEnabled || authStatus !== 'ready' || !projectId) return
+    let active = true
+    void listRemoteArchivedLocales(projectId).then((locales) => {
+      if (active) setArchivedLocales(locales)
+    }).catch((error: unknown) => {
+      if (active) notify(error instanceof Error ? error.message : '无法读取已归档语言。', true)
+    })
     return () => { active = false }
   }, [authStatus, projectId, remoteRefresh])
 
@@ -680,11 +702,6 @@ export default function App() {
 
   useEffect(() => {
     if (!backendEnabled || authStatus !== 'ready' || !project) return
-    if (project.status === 'ARCHIVED') {
-      setRemoteLoading(false)
-      setRemoteTotal(0); setRemoteAllTotal(0); setRemoteTranslated(0); setRemoteReviewed(0)
-      return
-    }
     let active = true
     setRemoteLoading(true)
     const pageRequest = filter === 'archived'
@@ -883,14 +900,19 @@ export default function App() {
     }) ?? []
   const entryCount = backendEnabled ? remoteAllTotal : project?.entries.length ?? 0
   const availableLanguages = LANGUAGES.filter(
-    (l) => l.code !== project?.sourceLanguage && !project?.targetLanguages.includes(l.code),
+    (l) => l.code !== project?.sourceLanguage && !project?.targetLanguages.includes(l.code)
+      && !archivedLocales.includes(l.code),
   )
   const projectActive = !backendEnabled || project?.status !== 'ARCHIVED'
-  const canManageCatalog = projectActive && (!backendEnabled || ['OWNER', 'ADMIN'].includes(projectRole ?? ''))
+  const archivedLocale = backendEnabled && archivedLocales.includes(locale)
+  const readOnlyWorkspace = backendEnabled && (!projectActive || archivedLocale)
+  const canManageCatalog = projectActive && !archivedLocale
+    && (!backendEnabled || ['OWNER', 'ADMIN'].includes(projectRole ?? ''))
   const canManageMembers = projectActive && ['OWNER', 'ADMIN'].includes(projectRole ?? '')
   const canManageProject = ['OWNER', 'ADMIN'].includes(projectRole ?? '')
-  const canManageGlossary = projectActive && ['OWNER', 'ADMIN'].includes(projectRole ?? '')
-  const canManageTranslation = projectActive && ['OWNER', 'ADMIN', 'TRANSLATOR'].includes(projectRole ?? '')
+  const canManageGlossary = projectActive && !archivedLocale && ['OWNER', 'ADMIN'].includes(projectRole ?? '')
+  const canManageTranslation = projectActive && !archivedLocale
+    && ['OWNER', 'ADMIN', 'TRANSLATOR'].includes(projectRole ?? '')
 
   useEffect(() => {
     if (!backendEnabled || modal !== 'import' || !project) return
@@ -1166,9 +1188,9 @@ export default function App() {
                           } catch (error) { notify(error instanceof Error ? error.message : '项目归档失败。', true) }
                         }}>归档项目</button>
                       )}
-                      <button className="button secondary" onClick={() => openModal('glossary')}>
+                      {!readOnlyWorkspace && <button className="button secondary" onClick={() => openModal('glossary')}>
                         术语库
-                      </button>
+                      </button>}
                       <button className="button secondary" onClick={() => openModal('members')}>
                         项目成员
                       </button>
@@ -1178,6 +1200,7 @@ export default function App() {
                           try {
                             const targetLanguages = await archiveRemoteLocale(project.id, locale)
                             updateProject({ ...project, targetLanguages })
+                            setArchivedLocales((items) => [...new Set([...items, locale])].sort())
                             if (!targetLanguages.includes(locale)) setLocale(targetLanguages[0])
                             setRemotePage(1)
                             notify('目标语言已归档。')
@@ -1190,7 +1213,21 @@ export default function App() {
               </section>
               {backendEnabled && project.status === 'ARCHIVED' && (
                 <div className="warning-banner" role="status">
-                  项目已归档。词条、译文和发布不能修改；具有项目成员身份的用户仍可查询历史发布与审计记录。
+                  项目已归档。词条、译文和发布不能修改；项目成员仍可查看译文修订、发布和审计历史。
+                </div>
+              )}
+              {archivedLocale && (
+                <div className="warning-banner" role="status">
+                  {languageName(locale)}（{locale}）已归档。当前仅可查看译文和修订历史。
+                  {canManageProject && projectActive && <button className="button plain" onClick={async () => {
+                    try {
+                      const targetLanguages = await restoreRemoteLocale(project.id, locale)
+                      updateProject({ ...project, targetLanguages })
+                      setArchivedLocales((items) => items.filter((item) => item !== locale))
+                      setRemoteRefresh((value) => value + 1)
+                      notify(`${languageName(locale)} 已恢复。`)
+                    } catch (error) { notify(error instanceof Error ? error.message : '恢复语言失败。', true) }
+                  }}>恢复此语言</button>}
                 </div>
               )}
               <section className="stats-grid" aria-label="项目概况">
@@ -1249,19 +1286,23 @@ export default function App() {
                     <h2>翻译工作台</h2>
                     <span>把意思说清楚，也把语气留下来。</span>
                   </div>
-                  <button className="button primary" onClick={() => openModal('entry')}>
+                  {!readOnlyWorkspace && <button className="button primary" onClick={() => openModal('entry')}>
                     <Plus size={16} />
                     添加文案
-                  </button>
+                  </button>}
                 </div>
                 <div className="language-strip">
                   <div className="language-tabs" role="group" aria-label="目标语言">
-                    {project.targetLanguages.map((code) => {
-                      const p = progress(project, code)
+                    {[
+                      ...project.targetLanguages.map((code) => ({ code, archived: false })),
+                      ...archivedLocales.filter((code) => !project.targetLanguages.includes(code))
+                        .map((code) => ({ code, archived: true })),
+                    ].map(({ code, archived }) => {
+                      const p = archived ? null : progress(project, code)
                       return (
                         <button
                           key={code}
-                          className={`language-tab ${locale === code ? 'active' : ''}`}
+                          className={`language-tab ${locale === code ? 'active' : ''} ${archived ? 'archived' : ''}`}
                           onClick={() => {
                             setLocale(code)
                             setRemotePage(1)
@@ -1271,10 +1312,10 @@ export default function App() {
                           aria-pressed={locale === code}
                         >
                           <span className="language-avatar">{languageShort(code)}</span>
-                          <span>{languageName(code)}</span>
-                          <small>{backendEnabled
+                          <span>{languageName(code)}{archived && <small> · 已归档</small>}</span>
+                          <small>{archived ? '历史' : backendEnabled
                             ? code === locale ? `${stats.percentage}%` : '—'
-                            : `${p.percentage}%`}</small>
+                            : `${p!.percentage}%`}</small>
                         </button>
                       )
                     })}
@@ -1282,7 +1323,7 @@ export default function App() {
                   <button
                     className="add-language"
                     onClick={() => openModal('language')}
-                    disabled={!availableLanguages.length}
+                    disabled={!availableLanguages.length || readOnlyWorkspace}
                   >
                     <Plus size={15} />
                     添加语言
@@ -1370,18 +1411,18 @@ export default function App() {
                     </>}
                   </select>
                   <div className="toolbar-actions">
-                    <button className="button plain" onClick={() => openModal('import')}>
+                    {!readOnlyWorkspace && <button className="button plain" onClick={() => openModal('import')}>
                       <ArrowUpFromLine size={16} />
                       导入 JSON
-                    </button>
-                    <button className="button plain" onClick={() => download('json-flat-v1')}>
+                    </button>}
+                    {!readOnlyWorkspace && <button className="button plain" onClick={() => download('json-flat-v1')}>
                       <ArrowDownToLine size={16} />
                       {backendEnabled ? '发布并导出 JSON' : '导出 JSON'}
-                    </button>
-                    <button className="button plain" onClick={() => download('java-properties-v1')}>
+                    </button>}
+                    {!readOnlyWorkspace && <button className="button plain" onClick={() => download('java-properties-v1')}>
                       <ArrowDownToLine size={16} />
                       {backendEnabled ? '发布并导出 Properties' : '导出 Properties'}
-                    </button>
+                    </button>}
                     {backendEnabled && (
                       <button className="button plain" onClick={() => openModal('releases')}>
                         <FileText size={16} />发布历史
@@ -1436,13 +1477,13 @@ export default function App() {
                             <td className="row-actions">
                               {filter !== 'archived' && <button
                                 className="edit-button"
-                                aria-label={`编辑译文 ${entry.key}`}
+                                aria-label={`${readOnlyWorkspace ? '查看' : '编辑'}译文 ${entry.key}`}
                                 onClick={() => setEditingId(entry.id)}
                               >
-                                译文
+                                {readOnlyWorkspace ? '查看' : '译文'}
                                 <ChevronRight size={13} />
                               </button>}
-                              {filter !== 'archived' && <button className="button plain" disabled={!canManageCatalog}
+                              {filter !== 'archived' && !readOnlyWorkspace && <button className="button plain" disabled={!canManageCatalog}
                                 onClick={() => { setSourceEditingId(entry.id); setSourceText(entry.source) }}>
                                 源文
                               </button>}
@@ -1921,7 +1962,7 @@ export default function App() {
                         && <small role="alert">{job.error || releaseJobError}</small>}
                     </div>
                     <div className="inline-actions">
-                      {job.status === 'FAILED' && projectActive && canManageProject && (
+                      {job.status === 'FAILED' && projectActive && !archivedLocale && canManageProject && (
                         <button className="button secondary" type="button" onClick={async () => {
                           try {
                             const retried = await retryRemoteReleaseJob(project.id, job.id)
@@ -1971,7 +2012,7 @@ export default function App() {
                         link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000)
                       } catch (error) { notify(error instanceof Error ? error.message : '历史版本下载失败。', true) }
                     }}><ArrowDownToLine size={14} />下载</button>
-                    {canManageProject && projectActive && <button className="button plain" onClick={async () => {
+                    {canManageProject && projectActive && !archivedLocale && <button className="button plain" onClick={async () => {
                       if (!window.confirm(`将 v${release.version} 的内容回滚为新的发布版本？`)) return
                       try {
                         await rollbackRemoteRelease(project.id, release.id)
@@ -2255,7 +2296,8 @@ export default function App() {
           project={project}
           locale={locale}
           backendMode={backendEnabled}
-          canReview={['OWNER', 'ADMIN', 'REVIEWER'].includes(projectRole ?? '')}
+          readOnly={readOnlyWorkspace}
+          canReview={!readOnlyWorkspace && ['OWNER', 'ADMIN', 'REVIEWER'].includes(projectRole ?? '')}
           onClose={() => setEditingId(null)}
           onSave={async (value, reviewed) => {
             try {

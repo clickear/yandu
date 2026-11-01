@@ -600,6 +600,13 @@ h1 > span {
   border-bottom-color: #8b4dd7;
   color: #8041cd;
 }
+.language-tab.archived {
+  color: #aaa2b2;
+}
+.language-tab.archived .language-avatar {
+  background: #f3f1f5;
+  color: #aaa2b2;
+}
 .language-avatar {
   background: #f3eff8;
   color: #aaa0b7;

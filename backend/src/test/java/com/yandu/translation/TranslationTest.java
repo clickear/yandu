@@ -99,6 +99,41 @@ class TranslationTest {
         verify(repository).revisionHistory(10L, 20L, "de-DE", 100);
     }
 
+    @Test
+    void archivedTargetLocaleRemainsReadableWithoutEnablingWrites() {
+        given(workspace.archivedTargetLocales(41L, 10L)).willReturn(List.of("de-DE"));
+        given(catalog.currentSourceRevision(41L, 10L, 20L)).willReturn(3L);
+        given(repository.find(10L, 20L, "de-DE")).willReturn(Optional.of(
+                Translation.restore(31L, 10L, 20L, "de-DE", "Willkommen", 3,
+                        Translation.Status.APPROVED, 2, 42L, 42L)));
+
+        var translation = service.get(new TranslationApplicationService.ReadTranslation(
+                41L, 10L, 20L, "de-de"));
+
+        assertEquals("Willkommen", translation.value());
+        assertEquals(Translation.Status.APPROVED, translation.status());
+        assertThrows(TranslationApplicationService.TargetLocaleNotConfiguredException.class,
+                () -> service.save(new TranslationApplicationService.SaveTranslation(
+                        41L, 10L, 20L, "de-DE", 2, 3, "Guten Tag")));
+        verify(repository, never()).update(any(Translation.class), anyLong(), any(java.time.Instant.class));
+    }
+
+    @Test
+    void archivedTargetLocaleCanBeViewedInReadOnlyWorkspace() {
+        given(workspace.archivedTargetLocales(41L, 10L)).willReturn(List.of("de-DE"));
+        given(repository.searchWorkspace(10L, 11L, "de-DE", "all", null, 0, 50))
+                .willReturn(new TranslationRepository.WorkspaceSearch(List.of(
+                        new TranslationRepository.WorkspaceEntry(20L, "home.greeting", "Hello",
+                                3L, 31L, "Willkommen", "APPROVED", 2L, 3L)),
+                        1L, 1L, 1L, 1L));
+
+        var page = service.searchWorkspace(new TranslationApplicationService.SearchWorkspace(
+                41L, 10L, 11L, "de-DE", "all", null, 1, 50));
+
+        assertEquals(1, page.items().size());
+        assertEquals("Willkommen", page.items().getFirst().translation());
+    }
+
     @BeforeEach
     void setUpQualityService() {
         catalog = mock(CatalogEntryApplicationService.class);

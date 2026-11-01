@@ -160,12 +160,13 @@ public class TranslationApplicationService {
     @Transactional(readOnly = true)
     public TranslationView get(ReadTranslation query) {
         access.requireCanReadTranslation(query.actorId(), query.projectId());
-        requireTargetLocale(query.actorId(), query.projectId(), query.locale());
+        var locale = Translation.normalizeLocale(query.locale());
+        requireKnownTargetLocale(query.actorId(), query.projectId(), locale);
         var sourceRevision = catalog.currentSourceRevision(
                 query.actorId(), query.projectId(), query.entryId());
-        var translation = translations.find(query.projectId(), query.entryId(), query.locale())
+        var translation = translations.find(query.projectId(), query.entryId(), locale)
                 .orElseThrow(() -> new TranslationNotFoundException(
-                        query.entryId(), query.locale()));
+                        query.entryId(), locale));
         var feedback = translations.latestReviewFeedback(query.projectId(), query.entryId(),
                 translation.locale()).orElse(null);
         return view(translation, sourceRevision, feedback);
@@ -176,11 +177,7 @@ public class TranslationApplicationService {
         access.requireCanReadTranslation(query.actorId(), query.projectId());
         var locale = Translation.normalizeLocale(query.locale());
         // Archived languages remain read-only history; active-language checks belong to commands.
-        var project = workspace.getProject(query.actorId(), query.projectId());
-        if (!project.targetLocales().contains(locale)
-                && !workspace.archivedTargetLocales(query.actorId(), query.projectId()).contains(locale)) {
-            throw new TargetLocaleNotConfiguredException(locale);
-        }
+        requireKnownTargetLocale(query.actorId(), query.projectId(), locale);
         return translations.revisionHistory(query.projectId(), query.entryId(), locale, 100).stream()
                 .map(revision -> new TranslationRevisionView(Long.toString(revision.id()), revision.version(),
                         revision.value(), revision.sourceRevision(), Long.toString(revision.editedBy()),
@@ -192,7 +189,7 @@ public class TranslationApplicationService {
     public WorkspacePage searchWorkspace(SearchWorkspace query) {
         access.requireCanReadTranslation(query.actorId(), query.projectId());
         var locale = Translation.normalizeLocale(query.locale());
-        requireTargetLocale(query.actorId(), query.projectId(), locale);
+        requireKnownTargetLocale(query.actorId(), query.projectId(), locale);
         int offset = Math.multiplyExact(query.page() - 1, query.pageSize());
         var result = translations.searchWorkspace(query.projectId(), query.namespaceId(), locale,
                 query.status(), query.keyword(), offset, query.pageSize());
@@ -358,6 +355,15 @@ public class TranslationApplicationService {
     private void requireTargetLocale(long actorId, long projectId, String locale) {
         if (!workspace.getProject(actorId, projectId).targetLocales().contains(
                 Translation.normalizeLocale(locale))) {
+            throw new TargetLocaleNotConfiguredException(locale);
+        }
+    }
+
+    private void requireKnownTargetLocale(long actorId, long projectId, String locale) {
+        var normalizedLocale = Translation.normalizeLocale(locale);
+        var project = workspace.getProject(actorId, projectId);
+        if (!project.targetLocales().contains(normalizedLocale)
+                && !workspace.archivedTargetLocales(actorId, projectId).contains(normalizedLocale)) {
             throw new TargetLocaleNotConfiguredException(locale);
         }
     }

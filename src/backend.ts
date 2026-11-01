@@ -197,6 +197,16 @@ export function archiveRemoteLocale(projectId: string, locale: string) {
   })
 }
 
+export function listRemoteArchivedLocales(projectId: string) {
+  return request<string[]>(`/projects/${projectId}/languages/archived`)
+}
+
+export function restoreRemoteLocale(projectId: string, locale: string) {
+  return request<string[]>(`/projects/${projectId}/languages/${encodeURIComponent(locale)}/restore`, {
+    method: 'POST',
+  })
+}
+
 export type MachineTranslationJob = {
   id: string
   projectId: string
