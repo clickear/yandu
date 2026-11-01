@@ -4,7 +4,7 @@
 
 ## 当前实现进度
 
-- 新增 `test:e2e:mysql` 浏览器→真实 Spring API→MySQL 8 工作流：浏览器创建项目和词条，使用测试 HTTP provider 执行机器翻译，检查回填草稿，以第二个 Reviewer 身份审核，再创建发布并从真实 API 读取快照。前几次 CI 已修正 UI 选择器与机器翻译依赖注入问题；近期运行推进至审核步骤，发现测试页面的初始化脚本在重新加载后将 Reviewer 会话覆盖回 Owner，现改为只在会话凭据缺失时初始化。本地没有 Maven、MySQL 或容器运行时，未在本机执行此新路径；本次新增完整链的 CI 验证在整批实现结束后统一检查。测试使用临时生成的 OIDC 签名密钥和本地 provider stub，不代表部署 IdP 或外部翻译供应商已验证。登录与用户管理按主流程最小需要处理，不扩展相关功能。
+- 新增 `test:e2e:mysql` 浏览器→真实 Spring API→MySQL 8 工作流：浏览器创建项目和词条，使用测试 HTTP provider 执行机器翻译，检查回填草稿，以第二个 Reviewer 身份审核，再创建发布并从真实 API 读取快照。修正 provider fallback 配置和重载时的 Reviewer 会话初始化后，GitHub Actions run `41298700352` 的 MySQL 8、Java、前端构建、本地原型/API E2E 及浏览器到 MySQL 主流程全部通过。本地没有 Maven、MySQL 或容器运行时，未在本机执行此新路径；测试使用临时生成的 OIDC 签名密钥和本地 provider stub，不代表部署 IdP 或外部翻译供应商已验证。登录与用户管理按主流程最小需要处理，不扩展相关功能。
 - 前端 API 模式新增审核与发布浏览器流程：Reviewer 打开审核中译文、批准精确版本，工作台更新为已审核；随后创建发布任务，自动获取快照，并在发布历史中显示版本、校验和及下载入口。Node 22 下生产构建和 API-mode Playwright 两项回归通过。此流程使用测试 OIDC 会话与 mocked API contract fixture，只验证界面/API 契约交互，不证明部署身份提供方、后端 API 或 MySQL 集成；登录与用户管理继续按主流程最小需要处理，不扩展相关功能。
 - 前端 API 模式补充定向 Playwright 流程：写入测试 OIDC 会话并用 API contract fixture 验证工作台展示机器翻译失败原因、允许重试、轮询中断时显示可恢复错误并在服务恢复后清除，最终显示“已回填草稿”并定位到词条；随后译员修订草稿、刷新页面恢复未保存内容并成功送审。GitHub Actions run `41294367315` 的完整 CI 与该 E2E 全部通过。fixture 返回预置 API 响应，仅证明前端状态/错误恢复和编辑交互，不作为真实 OIDC 或 API/MySQL 集成证据。
 - B13 回填保护新增 MySQL 8.0.46 API 验收：任务入队后分别修改源文案、人工保存另一条译文，再执行 worker；两项均以 `SKIPPED` 结束，返回对应原因，MySQL 中未产生旧源文译文且人工译文保持原值。CI run `41293186041` 的后端/MySQL、前端构建与 E2E 全部通过；本地 backend reactor 82 项测试通过（6 项 MySQL 集成在本地未启用数据库时跳过）。该确定性先后顺序检查不等同于多实例并发压力测试。
