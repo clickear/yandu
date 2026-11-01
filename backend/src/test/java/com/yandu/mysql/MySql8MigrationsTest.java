@@ -223,7 +223,8 @@ class MySql8MigrationsTest {
         headers.setContentType(MediaType.APPLICATION_JSON);
         String previewEndpoint = "http://localhost:" + port + "/api/v1/projects/" + projectId
                 + "/imports/previews";
-        String payload = "{\"home.title\":\"欢迎\",\"home.subtitle\":\"请登录\"}";
+        String payload = "{\"home.title\":\"欢迎\",\"home.subtitle\":\"请登录\","
+                + "\"home.greeting\":\"你好，{name}\"}";
         String body = json.writeValueAsString(java.util.Map.of(
                 "namespaceId", namespaceId, "locale", "zh-CN", "json", payload));
         var previewRequest = new HttpEntity<>(body, headers);
@@ -231,7 +232,7 @@ class MySql8MigrationsTest {
         ResponseEntity<JsonNode> replay = http.postForEntity(previewEndpoint, previewRequest, JsonNode.class);
         assertEquals(HttpStatus.OK, preview.getStatusCode());
         assertEquals("PREVIEW_READY", preview.getBody().path("status").asText());
-        assertEquals(2, preview.getBody().path("preview").path("added").asInt());
+        assertEquals(3, preview.getBody().path("preview").path("added").asInt());
         String jobId = preview.getBody().path("id").asText();
         assertEquals(jobId, replay.getBody().path("id").asText(),
                 "same project key and payload must reuse the saved preview");
@@ -283,6 +284,10 @@ class MySql8MigrationsTest {
             statement.setLong(2, namespaceId);
             try (var rows = statement.executeQuery()) {
                 assertTrue(rows.next());
+                assertEquals("home.greeting", rows.getString("entry_key"));
+                assertEquals("你好，{name}", rows.getString("source_text"));
+                assertEquals(1, rows.getLong("source_revision"));
+                assertTrue(rows.next());
                 assertEquals("home.subtitle", rows.getString("entry_key"));
                 assertEquals("请登录", rows.getString("source_text"));
                 assertEquals(1, rows.getLong("source_revision"));
@@ -313,12 +318,13 @@ class MySql8MigrationsTest {
 
         headers.set("Idempotency-Key", "target-import-940");
         String existingTargetBody = json.writeValueAsString(java.util.Map.of(
-                "namespaceId", namespaceId, "locale", "en-US", "json", "{\"home.title\":\"Welcome\"}"));
+                "namespaceId", namespaceId, "locale", "en-US", "json",
+                "{\"home.title\":\"Welcome\",\"home.greeting\":\"Hello\"}"));
         ResponseEntity<JsonNode> targetPreview = http.postForEntity(previewEndpoint,
                 new HttpEntity<>(existingTargetBody, headers), JsonNode.class);
         assertEquals(HttpStatus.OK, targetPreview.getStatusCode());
         assertEquals(0, targetPreview.getBody().path("preview").path("conflicts").asInt());
-        assertEquals("ADD", targetPreview.getBody().path("preview").path("items").get(0).path("action").asText());
+        assertEquals(2, targetPreview.getBody().path("preview").path("added").asInt());
         String targetJobId = targetPreview.getBody().path("id").asText();
         String targetJobEndpoint = "http://localhost:" + port + "/api/v1/projects/" + projectId
                 + "/imports/" + targetJobId;
@@ -347,6 +353,43 @@ class MySql8MigrationsTest {
                 assertFalse(rows.next());
             }
         }
+
+        long greetingEntryId;
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement("""
+                SELECT e.id, t.value, t.status, t.based_on_source_revision, t.version
+                  FROM catalog_entries e
+                  JOIN translations t ON t.project_id = e.project_id AND t.entry_id = e.id
+                 WHERE e.project_id = ? AND e.entry_key = 'home.greeting' AND t.target_locale = 'en-US'
+                """)) {
+            statement.setLong(1, projectId);
+            try (var rows = statement.executeQuery()) {
+                assertTrue(rows.next());
+                greetingEntryId = rows.getLong("id");
+                assertEquals("Hello", rows.getString("value"));
+                assertEquals("DRAFT", rows.getString("status"));
+                assertEquals(1, rows.getLong("based_on_source_revision"));
+                assertEquals(1, rows.getLong("version"));
+            }
+        }
+        String translationEndpoint = "http://localhost:" + port + "/api/v1/projects/" + projectId
+                + "/catalog/entries/" + greetingEntryId + "/translations/en-US";
+        ResponseEntity<JsonNode> qualityFailure = http.postForEntity(translationEndpoint + "/submit",
+                new HttpEntity<>("{\"expectedVersion\":1}", headers), JsonNode.class);
+        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, qualityFailure.getStatusCode());
+        assertEquals("PLACEHOLDER_MISMATCH",
+                qualityFailure.getBody().path("issues").get(0).path("ruleId").asText());
+        assertEquals(1, qualityFailure.getBody().path("issues").get(0).path("expected").path("name").asInt());
+
+        String corrected = json.writeValueAsString(java.util.Map.of(
+                "expectedVersion", 1, "basedOnSourceRevision", 1, "value", "Hello {name}"));
+        ResponseEntity<JsonNode> saved = http.exchange(translationEndpoint, HttpMethod.PUT,
+                new HttpEntity<>(corrected, headers), JsonNode.class);
+        assertEquals(HttpStatus.OK, saved.getStatusCode());
+        assertEquals(2, saved.getBody().path("version").asInt());
+        ResponseEntity<JsonNode> submitted = http.postForEntity(translationEndpoint + "/submit",
+                new HttpEntity<>("{\"expectedVersion\":2}", headers), JsonNode.class);
+        assertEquals(HttpStatus.OK, submitted.getStatusCode());
+        assertEquals("IN_REVIEW", submitted.getBody().path("status").asText());
     }
 
     private JsonNode awaitImportStatus(String jobEndpoint, HttpHeaders headers, String expectedStatus)
