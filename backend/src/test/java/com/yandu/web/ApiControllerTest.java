@@ -22,14 +22,15 @@ import com.yandu.audit.AuditLog;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 @WebMvcTest(ApiController.class)
+@EnableConfigurationProperties(org.springdoc.core.properties.SpringDocConfigProperties.class)
 @Import({SecurityConfiguration.class, ApiExceptionHandler.class, OpenApiConfiguration.class,
-        org.springdoc.core.properties.SpringDocConfigProperties.class,
         org.springdoc.core.configuration.SpringDocConfiguration.class,
         org.springdoc.webmvc.core.configuration.SpringDocWebMvcConfiguration.class})
 @TestPropertySource(properties = {

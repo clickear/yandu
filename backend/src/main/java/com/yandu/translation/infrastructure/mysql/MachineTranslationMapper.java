@@ -60,7 +60,7 @@ public interface MachineTranslationMapper extends BaseMapper<MachineTranslationM
               LEFT JOIN translations t ON t.project_id = e.project_id AND t.entry_id = e.id
                    AND t.target_locale = #{targetLocale}
              WHERE e.project_id = #{projectId} AND e.status = 'ACTIVE'
-               AND (t.id IS NULL OR (t.value = '' AND t.status <> 'APPROVED'))
+               AND (t.id IS NULL OR (t.value = '' AND t.status &lt;&gt; 'APPROVED'))
                <if test='entryIds != null and !entryIds.isEmpty()'>
                AND e.id IN
                  <foreach collection='entryIds' item='entryId' open='(' separator=',' close=')'>#{entryId}</foreach>
@@ -165,6 +165,9 @@ public interface MachineTranslationMapper extends BaseMapper<MachineTranslationM
     int completeItem(@Param("jobId") long jobId, @Param("entryId") long entryId,
                      @Param("status") String status, @Param("message") String message,
                      @Param("updatedAt") Instant updatedAt);
+
+    @Select("SELECT id FROM machine_translation_jobs WHERE id = #{jobId} FOR UPDATE")
+    Long lockJobForItemCompletion(@Param("jobId") long jobId);
 
     @Update("""
             UPDATE machine_translation_jobs j

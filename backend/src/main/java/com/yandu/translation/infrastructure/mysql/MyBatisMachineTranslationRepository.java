@@ -107,6 +107,10 @@ public class MyBatisMachineTranslationRepository implements MachineTranslationRe
     @Override
     @Transactional
     public void completeItem(long jobId, long entryId, String status, String message, Instant updatedAt) {
+        // Lock the parent first so parallel workers recalculate one job's counters in a stable order.
+        if (mapper.lockJobForItemCompletion(jobId) == null) {
+            throw new IllegalStateException("Machine translation job no longer exists");
+        }
         if (mapper.completeItem(jobId, entryId, status, message, updatedAt) != 1) {
             throw new IllegalStateException("Machine translation item state changed concurrently");
         }

@@ -18,10 +18,12 @@ import java.time.Duration;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
-import org.springframework.dao.DataIntegrityViolationException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.core.task.TaskRejectedException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -31,6 +33,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 /** Coordinates durable provider work and delegates guarded draft changes to the Translation module. */
 @Service
 public class MachineTranslationApplicationService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(MachineTranslationApplicationService.class);
 
     private static final int MAX_SELECTED_ENTRIES = 10_000;
     private static final int MAX_ERROR_LENGTH = 1000;
@@ -189,6 +193,8 @@ public class MachineTranslationApplicationService {
         } catch (DataIntegrityViolationException concurrentEdit) {
             finish(item, "SKIPPED", "译文已被其他操作创建，自动结果未覆盖当前内容。");
         } catch (RuntimeException failure) {
+            LOGGER.warn("Machine translation result persistence failed (jobId={}, entryId={}, errorType={})",
+                    item.jobId(), item.entryId(), failure.getClass().getSimpleName());
             finish(item, "FAILED", "机器翻译结果未能保存，请检查任务状态后重试。");
         }
     }

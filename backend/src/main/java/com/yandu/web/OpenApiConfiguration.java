@@ -17,12 +17,9 @@ import io.swagger.v3.oas.models.security.SecurityScheme;
 import org.springdoc.core.customizers.OpenApiCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springdoc.core.properties.SpringDocConfigProperties;
 
 /** Publishes the versioned REST contract from the same controllers used at runtime. */
 @Configuration
-@EnableConfigurationProperties(SpringDocConfigProperties.class)
 public class OpenApiConfiguration {
 
     @Bean
