@@ -30,9 +30,11 @@ npm run dev
 - 导出当前语言 JSON 或 Java Properties，未翻译条目导出为空值；Properties 可由 Java `Properties.load(InputStream)` 读取。
 - 浏览器 `localStorage` 自动保存；损坏或不兼容的数据不会自动覆盖。
 - 中英日示例数据、桌面和移动布局、键盘可操作弹窗。
-- 可选的 OIDC 服务端模式：成员角色、源文版本与历史、译文送审/审校、JSON 差异预览与异步导入、审核通过后的 JSON/Properties 发布下载。
+- 可选的 OIDC 服务端模式：项目成员和角色授权、源文版本与历史、译文送审/审校、JSON 差异预览与异步导入、审核通过后的 JSON/Properties 发布下载。
+- 可选的服务端机器翻译：配置 LibreTranslate-compatible provider 后可创建持久化异步任务、跟踪单项结果、重试失败项，并将仍有效的结果回填为译文草稿。
+- 自动回填会复核源文版本和译文状态；源文已变更或译文已被人工填写时跳过，不覆盖人工内容。API 模式提供译员修订、Reviewer 通过/退回、质量门禁、不可变发布、历史下载和回滚。
 
-本地模式的数据不跨设备同步；OIDC、团队协作、服务端项目与分页译文、服务端导入预览/任务、审核送审和 JSON 发布下载需要配置后端。机器翻译尚未接入。JSON 仅包含文案，不包含审核状态；它不是完整工作空间备份。源文案可通过源语言 JSON 更新；重命名、删除、完整备份等见后续计划。
+本地模式的数据不跨设备同步；团队协作和机器翻译需要配置后端 OIDC、MySQL 8.0 与 API。机器翻译还需部署方配置 provider endpoint，必要时配置 API key；未配置时服务端拒绝创建任务。当前已在 MySQL 8.0.46 和本地 LibreTranslate 协议 stub 上验证数据库迁移、API 工作流、回填保护、审核和发布导出；这不代表真实外部翻译服务或部署身份提供方已联调。详见[后端说明](backend/README.md)及[当前实施计划](plans/003-backend-collaboration.md)。JSON 仅包含文案，不包含审核状态；它不是完整工作空间备份。
 
 导入格式：
 
