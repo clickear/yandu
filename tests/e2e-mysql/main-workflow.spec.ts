@@ -42,7 +42,7 @@ test('MySQL-backed workspace completes machine translation, review, and release'
   })
 
   await page.goto('/')
-  await page.getByRole('button', { name: '新建项目' }).click()
+  await page.getByRole('main').getByRole('button', { name: '新建项目' }).click()
   const projectDialog = page.getByRole('dialog')
   await projectDialog.getByLabel('项目名称').fill('MySQL E2E 翻译流程')
   await projectDialog.getByRole('button', { name: '创建项目' }).click()
