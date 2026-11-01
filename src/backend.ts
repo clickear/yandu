@@ -56,8 +56,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     },
   })
   if (!response.ok) {
-    const detail = await response.json().catch(() => null) as { detail?: string; title?: string } | null
-    throw new Error(detail?.detail ?? detail?.title ?? `服务端请求失败（${response.status}）。`)
+    const problem = await response.json().catch(() => null) as {
+      detail?: string; title?: string; issues?: { message?: string }[]
+    } | null
+    const qualityMessages = [...new Set((problem?.issues ?? [])
+      .map((issue) => issue.message?.trim()).filter((message): message is string => Boolean(message)))]
+    const message = qualityMessages.length
+      ? `质量检查未通过：${qualityMessages.join('；')}`
+      : problem?.detail ?? problem?.title ?? `服务端请求失败（${response.status}）。`
+    throw new Error(message)
   }
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>

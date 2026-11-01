@@ -175,6 +175,26 @@ class TranslationTest {
     }
 
     @Test
+    void qualityCheckTreatsDoubledBracesAsLiteralsAndRejectsUnsupportedPlaceholderSyntax() {
+        given(catalog.get(41L, 10L, 20L)).willReturn(new CatalogEntryApplicationService.EntryView(
+                "20", "10", "11", "home.greeting", "Use {{literal}} and {user}", 3, 3, false));
+        given(repository.find(10L, 20L, "en-US")).willReturn(Optional.of(
+                Translation.restore(30L, 10L, 20L, "en-US", "Use {{literal}} and {user}", 3,
+                        Translation.Status.DRAFT, 1, 41L, 41L)));
+
+        assertTrue(service.quality(41L, 10L, 20L, "en-US").isEmpty());
+
+        given(repository.find(10L, 20L, "en-US")).willReturn(Optional.of(
+                Translation.restore(30L, 10L, 20L, "en-US", "Use {{literal}} and {0}", 3,
+                        Translation.Status.DRAFT, 2, 41L, 41L)));
+        var issues = service.quality(41L, 10L, 20L, "en-US");
+
+        assertEquals("TRANSLATION_PLACEHOLDER_FORMAT", issues.getFirst().ruleId());
+        assertEquals(20L, issues.getFirst().entryId());
+        assertEquals("en-US", issues.getFirst().locale());
+    }
+
+    @Test
     void suggestionsReturnOnlyRepositoryMatchesForTheAuthorizedProjectAndLocale() {
         given(repository.findApprovedMatches(10L, 20L, "en-US", "Hello {user}", 10))
                 .willReturn(List.of(new TranslationRepository.MemoryMatch(21L, "home.welcome",

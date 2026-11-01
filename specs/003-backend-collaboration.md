@@ -24,7 +24,7 @@ Spring Boot、Spring Modulith 与 Spring Security 的选择依据及其职责边
 
 首期范围：项目成员与角色权限（暂不引入租户/组织隔离）、项目和语言、命名空间与源词条、译文协作与审核、占位符/必填校验、术语与翻译记忆建议、JSON 导入预览和异步导入、质量门禁、不可变发布版本、JSON 与 Java Properties 导出、历史回溯、审计与运维所需的健康/任务状态接口。
 
-机器翻译纳入首期主流程，但不默认启用外部服务：通过配置 LibreTranslate-compatible HTTP provider 接入自托管或托管实例。任务异步持久化、可查询/重试；结果只以草稿回填，且必须匹配创建时源版本和译文版本、当前译文仍为空，避免旧任务覆盖人工编辑。未配置 endpoint 时不创建假成功状态。Git 集成、截图/OCR、计费商城、微服务拆分和跨区域主动-主动部署不纳入首期。
+机器翻译纳入首期主流程，但不默认启用外部服务：通过配置 LibreTranslate-compatible 或 OpenAI-compatible Chat Completions HTTP provider 接入自托管/托管翻译服务、大模型 API 或兼容第三方网关。任务异步持久化、可查询/重试；结果只以草稿回填，且必须匹配创建时源版本和译文版本、当前译文仍为空，避免旧任务覆盖人工编辑。未配置 provider 时不创建假成功状态。Git 集成、截图/OCR、计费商城、微服务拆分和跨区域主动-主动部署不纳入首期。
 
 ## DDD 规则摘要
 
@@ -47,7 +47,7 @@ Spring Boot、Spring Modulith 与 Spring Security 的选择依据及其职责边
 
 Workspace 生命周期切片已补齐：项目创建默认配置一个目标语言并接受描述；项目和目标语言可归档/恢复（至少一个活动目标语言），归档项目在成员列表可见且可读历史；成员角色可调整/移除/主动离开，Owner 可转让给现有 Admin；Owner/Admin/Translator/Reviewer/Viewer 规则由 Project 聚合校验，项目归档与成员操作写审计。后端 37 项测试（含 Spring Modulith 边界检查）与前端生产构建通过；V6 MySQL 迁移尚未在 MySQL 8.0 实例执行。
 
-机器翻译通过可配置 HTTP provider 纳入主流程，支持 LibreTranslate-compatible `/translate` 及 OpenAI-compatible Chat Completions（可接大模型 API 或第三方兼容网关）。设置 `YANDU_MT_PROVIDER`、`YANDU_MT_BASE_URL`，大模型还需 `YANDU_MT_MODEL`；必要时设置服务端 `YANDU_MT_API_KEY`。可为当前目标语言创建幂等异步任务，最多四个 worker 并发执行，按词条展示进度/失败并重试；结果只写入草稿，回填时锁源词条并比较源修订、译文版本和空值，版本变化或人工已译时跳过。provider 未配置时返回 503，不创建任务。MySQL 8.0.46 上 V7 已随 V1–V9 执行；本地数据库端到端 API 流程验证了幂等创建、机器结果草稿回填、人工修订/审核和发布导出，协议 stub 下人工编辑与源版本竞争均安全跳过。真实外部 provider 调用、部署 IdP 和多实例并发仍未验证。
+机器翻译通过可配置 HTTP provider 纳入主流程，支持 LibreTranslate-compatible `/translate` 及 OpenAI-compatible Chat Completions（可接大模型 API 或第三方兼容网关）。设置 `YANDU_MT_PROVIDER`、`YANDU_MT_BASE_URL`，大模型还需 `YANDU_MT_MODEL`；必要时设置服务端 `YANDU_MT_API_KEY`。可为当前目标语言创建幂等异步任务，最多四个 worker 并发执行，按词条展示进度/失败并重试；结果只写入草稿，回填时锁源词条并比较源修订、译文版本和空值，版本变化或人工已译时跳过。provider 未配置时返回 503，不创建任务。MySQL 8.0.46 上 V1–V9 已执行；本地数据库端到端 API 流程验证了幂等创建、机器结果草稿回填、人工修订/审核和发布导出，协议 stub 下人工编辑与源版本竞争均安全跳过。真实外部 provider 调用、部署 IdP 和多实例并发仍未验证。
 
 工程取舍：优先沿现有模块扩展，不为单一小操作拆出一组类型或单独测试类。用例验证按大模块集中执行；小改动先做编译和差异检查，避免频繁运行全套测试。
 

@@ -11,8 +11,6 @@ import java.time.Clock;
 import java.util.Objects;
 import java.util.List;
 import java.util.Optional;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.function.LongSupplier;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
@@ -23,8 +21,6 @@ import org.springframework.dao.DataIntegrityViolationException;
 /** Coordinates translation editing, review, and synchronous source-revision invalidation. */
 @Service
 public class TranslationApplicationService {
-
-    private static final Pattern NAMED_PLACEHOLDER = Pattern.compile("\\{([A-Za-z_][A-Za-z0-9_.-]*)}");
 
     private final TranslationRepository translations;
     private final WorkspaceApplicationService workspace;
@@ -271,21 +267,25 @@ public class TranslationApplicationService {
                     "译文不能为空。", java.util.Map.of(), java.util.Map.of()));
         }
         if (value != null && !value.isBlank()) {
-            var sourceTokens = placeholders(source);
-            var translationTokens = placeholders(value);
-            if (!sourceTokens.equals(translationTokens)) {
+            var comparison = Translation.comparePlaceholders(source, value);
+            if (!comparison.sourceSupported()) {
+                issues.add(new QualityIssue("SOURCE_PLACEHOLDER_FORMAT", "ERROR", entryId, locale,
+                        "源文包含不支持的花括号格式；仅支持 {name}，双花括号可表示字面花括号。",
+                        java.util.Map.of(), java.util.Map.of()));
+            }
+            if (!comparison.translationSupported()) {
+                issues.add(new QualityIssue("TRANSLATION_PLACEHOLDER_FORMAT", "ERROR", entryId, locale,
+                        "译文包含不支持的花括号格式；仅支持 {name}，双花括号可表示字面花括号。",
+                        java.util.Map.of(), java.util.Map.of()));
+            }
+            if (comparison.sourceSupported() && comparison.translationSupported()
+                    && !comparison.source().equals(comparison.translation())) {
                 issues.add(new QualityIssue("PLACEHOLDER_MISMATCH", "ERROR", entryId, locale,
-                        "译文中的命名占位符必须与源文案一致。", sourceTokens, translationTokens));
+                        "译文中的命名占位符必须与源文案一致。",
+                        comparison.source(), comparison.translation()));
             }
         }
         return List.copyOf(issues);
-    }
-
-    private static java.util.Map<String, Integer> placeholders(String value) {
-        var tokens = new java.util.TreeMap<String, Integer>();
-        Matcher matcher = NAMED_PLACEHOLDER.matcher(value);
-        while (matcher.find()) tokens.merge(matcher.group(1), 1, Integer::sum);
-        return tokens;
     }
 
     @Transactional
