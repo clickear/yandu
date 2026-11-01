@@ -319,12 +319,13 @@ class MySql8MigrationsTest {
         headers.set("Idempotency-Key", "target-import-940");
         String existingTargetBody = json.writeValueAsString(java.util.Map.of(
                 "namespaceId", namespaceId, "locale", "en-US", "json",
-                "{\"home.title\":\"Welcome\",\"home.greeting\":\"Hello\"}"));
+                "{\"home.title\":\"Welcome\",\"home.subtitle\":\"Log in\","
+                        + "\"home.greeting\":\"Hello\"}"));
         ResponseEntity<JsonNode> targetPreview = http.postForEntity(previewEndpoint,
                 new HttpEntity<>(existingTargetBody, headers), JsonNode.class);
         assertEquals(HttpStatus.OK, targetPreview.getStatusCode());
         assertEquals(0, targetPreview.getBody().path("preview").path("conflicts").asInt());
-        assertEquals(2, targetPreview.getBody().path("preview").path("added").asInt());
+        assertEquals(3, targetPreview.getBody().path("preview").path("added").asInt());
         String targetJobId = targetPreview.getBody().path("id").asText();
         String targetJobEndpoint = "http://localhost:" + port + "/api/v1/projects/" + projectId
                 + "/imports/" + targetJobId;
@@ -408,6 +409,30 @@ class MySql8MigrationsTest {
         }
         HttpHeaders reviewerHeaders = authenticatedHeaders("mysql-import-reviewer-token", "import-reviewer");
         reviewerHeaders.setContentType(MediaType.APPLICATION_JSON);
+        var otherEntryIds = new java.util.HashMap<String, Long>();
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement("""
+                SELECT id, entry_key FROM catalog_entries
+                 WHERE project_id = ? AND entry_key IN ('home.title', 'home.subtitle')
+                """)) {
+            statement.setLong(1, projectId);
+            try (var rows = statement.executeQuery()) {
+                while (rows.next()) otherEntryIds.put(rows.getString("entry_key"), rows.getLong("id"));
+            }
+        }
+        assertEquals(2, otherEntryIds.size());
+        for (var entry : otherEntryIds.entrySet()) {
+            String otherTranslation = "http://localhost:" + port + "/api/v1/projects/" + projectId
+                    + "/catalog/entries/" + entry.getValue() + "/translations/en-US";
+            ResponseEntity<JsonNode> sentForReview = http.postForEntity(otherTranslation + "/submit",
+                    new HttpEntity<>("{\"expectedVersion\":1}", headers), JsonNode.class);
+            assertEquals(HttpStatus.OK, sentForReview.getStatusCode(), entry.getKey());
+            assertEquals("IN_REVIEW", sentForReview.getBody().path("status").asText(), entry.getKey());
+            ResponseEntity<JsonNode> approvedOther = http.postForEntity(otherTranslation + "/review",
+                    new HttpEntity<>("{\"expectedVersion\":2,\"decision\":\"APPROVE\"}", reviewerHeaders),
+                    JsonNode.class);
+            assertEquals(HttpStatus.OK, approvedOther.getStatusCode(), entry.getKey());
+            assertEquals("APPROVED", approvedOther.getBody().path("status").asText(), entry.getKey());
+        }
         String reviewEndpoint = translationEndpoint + "/review";
         ResponseEntity<JsonNode> returned = http.postForEntity(reviewEndpoint,
                 new HttpEntity<>("{\"expectedVersion\":3,\"decision\":\"REQUEST_CHANGES\","
@@ -434,6 +459,18 @@ class MySql8MigrationsTest {
         assertEquals(HttpStatus.OK, approved.getStatusCode());
         assertEquals("APPROVED", approved.getBody().path("status").asText());
         assertEquals(7, approved.getBody().path("version").asInt());
+
+        var releaseJob = publishJobAndAwait(projectId, "reviewed-import-release",
+                "mysql-import-integration-token", "import-owner", "en-US");
+        String releaseContentEndpoint = "http://localhost:" + port + "/api/v1/projects/" + projectId
+                + "/releases/" + releaseJob.releaseId() + "/content";
+        ResponseEntity<String> releasedJson = http.exchange(releaseContentEndpoint, HttpMethod.GET,
+                new HttpEntity<>(headers), String.class);
+        assertEquals(HttpStatus.OK, releasedJson.getStatusCode());
+        JsonNode releasedContent = json.readTree(releasedJson.getBody());
+        assertEquals("Welcome", releasedContent.path("home.title").asText());
+        assertEquals("Log in", releasedContent.path("home.subtitle").asText());
+        assertEquals("Hello there, {name}", releasedContent.path("home.greeting").asText());
 
         ResponseEntity<JsonNode> audit = http.exchange("http://localhost:" + port + "/api/v1/projects/"
                         + projectId + "/audit-log?page=1&pageSize=50", HttpMethod.GET,
@@ -607,14 +644,21 @@ class MySql8MigrationsTest {
     }
 
     private ReleaseApplicationService.ReleaseJobView publishJobAndAwait(long projectId, String idempotencyKey)
-            throws InterruptedException {
+            throws Exception {
+        return publishJobAndAwait(projectId, idempotencyKey,
+                "mysql-release-integration-token", "sync-consumer", "fr-FR");
+    }
+
+    private ReleaseApplicationService.ReleaseJobView publishJobAndAwait(long projectId, String idempotencyKey,
+                                                                        String token, String subject, String locale)
+            throws Exception {
         // A single verified test principal exercises the protected HTTP boundary without configuring a real IdP.
-        String token = "mysql-release-integration-token";
         String endpoint = "http://localhost:" + port + "/api/v1/projects/" + projectId + "/releases";
-        HttpHeaders requestHeaders = authenticatedHeaders(token, "sync-consumer");
+        HttpHeaders requestHeaders = authenticatedHeaders(token, subject);
         requestHeaders.set("Idempotency-Key", idempotencyKey);
         requestHeaders.setContentType(MediaType.APPLICATION_JSON);
-        var request = new HttpEntity<>("{\"locale\":\"fr-FR\",\"format\":\"json-flat-v1\"}", requestHeaders);
+        var request = new HttpEntity<>(json.writeValueAsString(
+                java.util.Map.of("locale", locale, "format", "json-flat-v1")), requestHeaders);
         ResponseEntity<JsonNode> created = http.exchange(endpoint, HttpMethod.POST, request, JsonNode.class);
         ResponseEntity<JsonNode> duplicate = http.exchange(endpoint, HttpMethod.POST, request, JsonNode.class);
         assertEquals(HttpStatus.ACCEPTED, created.getStatusCode());
