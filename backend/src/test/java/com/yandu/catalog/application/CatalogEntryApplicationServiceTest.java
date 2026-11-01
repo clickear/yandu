@@ -82,6 +82,22 @@ class CatalogEntryApplicationServiceTest {
     }
 
     @Test
+    void reorganizationPreservesSourceRevisionAndPersistsMetadataOnlyOnce() {
+        var repository = existingEntry();
+        var service = service(repository, new RecordingAccessPolicy());
+
+        var result = service.reorganize(new CatalogEntryApplicationService.ReorganizeEntry(
+                ACTOR, PROJECT, 101L, 1, 302L, "account.sign-in"));
+
+        assertEquals("account.sign-in", result.key());
+        assertEquals("302", result.namespaceId());
+        assertEquals(1, result.sourceRevision());
+        assertEquals(2, result.version());
+        assertEquals(1, repository.persistedReorganizations.size());
+        assertEquals(List.of(1L), repository.persistedRevisions);
+    }
+
+    @Test
     void accessDenialPreventsAnyCatalogWrite() {
         var repository = new InMemoryCatalogEntryRepository();
         ProjectAccessPolicy denyAll = new ProjectAccessPolicy() {
@@ -235,7 +251,7 @@ class CatalogEntryApplicationServiceTest {
 
     private static InMemoryCatalogEntryRepository existingEntry() {
         var repository = new InMemoryCatalogEntryRepository();
-        var entry = new CatalogEntry(101L, PROJECT, "auth.login", "Sign in", 1, 1);
+        var entry = new CatalogEntry(101L, PROJECT, 301L, "auth.login", "Sign in", 1, 1);
         repository.entries.put(entry.id(), entry);
         repository.persistedRevisions.add(1L);
         return repository;
@@ -287,6 +303,7 @@ class CatalogEntryApplicationServiceTest {
         private final ArrayList<Long> created = new ArrayList<>();
         private final ArrayList<Long> persistedRevisions = new ArrayList<>();
         private final ArrayList<SourceChange> persistedChanges = new ArrayList<>();
+        private final ArrayList<CatalogEntry.Reorganization> persistedReorganizations = new ArrayList<>();
         private final ArrayList<RevisionSnapshot> history = new ArrayList<>();
         private final ArrayList<Long> archived = new ArrayList<>();
         private final ArrayList<Term> terms = new ArrayList<>();
@@ -308,6 +325,12 @@ class CatalogEntryApplicationServiceTest {
                                   int offset, int limit) {
             var matching = entries.values().stream()
                     .filter(entry -> entry.projectId() == projectId)
+                    .filter(entry -> keyword == null || entry.key().contains(keyword)).toList();
+            return new EntrySearch(matching.stream().skip(offset).limit(limit).toList(), matching.size());
+        }
+
+        @Override public EntrySearch searchProject(long projectId, String keyword, int offset, int limit) {
+            var matching = entries.values().stream().filter(entry -> entry.projectId() == projectId)
                     .filter(entry -> keyword == null || entry.key().contains(keyword)).toList();
             return new EntrySearch(matching.stream().skip(offset).limit(limit).toList(), matching.size());
         }
@@ -365,5 +388,8 @@ class CatalogEntryApplicationServiceTest {
             persistedChanges.add(change);
             persistedRevisions.add(change.currentRevision());
         }
+
+        @Override public void persistReorganization(CatalogEntry entry, CatalogEntry.Reorganization change,
+                                                    long actorId, Instant occurredAt) { persistedReorganizations.add(change); }
     }
 }

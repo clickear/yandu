@@ -40,9 +40,9 @@ class ImportTest {
         given(workspace.getProject(41L, 10L)).willReturn(new WorkspaceApplicationService.ProjectView(
                 "10", "41", "Store", "zh-CN", Set.of("en-US"), 7, "10"));
         given(imports.findByIdempotencyKey(10L, "request-0001")).willReturn(Optional.empty());
-        given(catalog.search(any())).willReturn(new CatalogEntryApplicationService.EntryPage(1, 100, 1,
+        given(catalog.searchProject(any())).willReturn(new CatalogEntryApplicationService.EntryPage(1, 100, 1,
                 List.of(new CatalogEntryApplicationService.EntryView(
-                        "20", "10", "home.title", "旧文案", 3, 3, false))));
+                        "20", "10", "11", "home.title", "旧文案", 3, 3, false))));
         TaskExecutor directExecutor = Runnable::run;
         service = new ImportApplicationService(imports, catalog, translations, workspace, access,
                 () -> 500L, Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), java.time.ZoneOffset.UTC),

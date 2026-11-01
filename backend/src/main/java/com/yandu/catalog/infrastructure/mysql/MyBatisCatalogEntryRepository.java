@@ -46,6 +46,12 @@ public class MyBatisCatalogEntryRepository implements CatalogEntryRepository,
         return new EntrySearch(items, entries.countActive(projectId, namespaceId, keyword));
     }
 
+    @Override public EntrySearch searchProject(long projectId, String keyword, int offset, int limit) {
+        var items = entries.searchProjectActive(projectId, keyword, offset, limit).stream()
+                .map(this::toDomain).toList();
+        return new EntrySearch(items, entries.countProjectActive(projectId, keyword));
+    }
+
     @Override
     public void insert(CatalogEntryRepository.GlossaryTerms.Term term, long actorId, Instant occurredAt) {
         entries.insertTerm(term.id(), term.projectId(), term.sourceLocale(), term.targetLocale(),
@@ -124,6 +130,15 @@ public class MyBatisCatalogEntryRepository implements CatalogEntryRepository,
                 entry.sourceText(), actorId, occurredAt);
     }
 
+    @Override public void persistReorganization(CatalogEntry entry,
+                                               CatalogEntry.Reorganization change,
+                                               long actorId, Instant occurredAt) {
+        var updated = entries.reorganizeOptimistically(entry.projectId(), entry.id(),
+                entry.namespaceId(), entry.key(), change.previousVersion(), change.currentVersion(),
+                actorId, occurredAt);
+        if (updated != 1) throw new IllegalStateException("Catalog entry changed concurrently; reload and retry");
+    }
+
     private void insertRevision(long projectId, long entryId, long revision,
                                 String sourceText, long actorId, Instant occurredAt) {
         var row = new SourceRevisionMapper.SourceRevisionRow();
@@ -138,7 +153,7 @@ public class MyBatisCatalogEntryRepository implements CatalogEntryRepository,
     }
 
     private CatalogEntry toDomain(CatalogEntryMapper.CatalogEntryRow row) {
-        return new CatalogEntry(row.getId(), row.getProjectId(), row.getEntryKey(),
+        return new CatalogEntry(row.getId(), row.getProjectId(), row.getNamespaceId(), row.getEntryKey(),
                 row.getSourceText(), row.getSourceRevision(), row.getVersion());
     }
 

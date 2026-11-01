@@ -2,6 +2,7 @@ package com.yandu.catalog.application;
 
 import com.yandu.catalog.domain.CatalogEntry;
 import com.yandu.catalog.domain.CatalogEntry.SourceChange;
+import com.yandu.catalog.domain.CatalogEntry.Reorganization;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.List;
@@ -14,6 +15,8 @@ public interface CatalogEntryRepository {
     Optional<CatalogEntry> findForRead(long projectId, long entryId);
 
     EntrySearch search(long projectId, long namespaceId, String keyword, int offset, int limit);
+
+    EntrySearch searchProject(long projectId, String keyword, int offset, int limit);
 
     List<RevisionSnapshot> history(long projectId, long entryId);
 
@@ -31,6 +34,9 @@ public interface CatalogEntryRepository {
             SourceChange change,
             long actorId,
             Instant occurredAt);
+
+    void persistReorganization(CatalogEntry entry, Reorganization change,
+                               long actorId, Instant occurredAt);
 
     record RevisionSnapshot(
             long id, long entryId, long sourceRevision, String sourceText,

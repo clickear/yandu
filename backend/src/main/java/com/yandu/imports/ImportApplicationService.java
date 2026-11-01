@@ -84,9 +84,7 @@ public class ImportApplicationService {
         if (!locale.equals(project.sourceLocale()) && !project.targetLocales().contains(locale)) {
             throw new IllegalArgumentException("Import locale is not configured for this project");
         }
-        if (!Long.toString(command.namespaceId()).equals(project.defaultNamespaceId())) {
-            throw new IllegalArgumentException("Import namespace does not belong to this project");
-        }
+        workspace.requireActiveNamespace(command.projectId(), command.namespaceId());
         var payload = parsePayload(command.json());
         var payloadJson = serialize(payload);
         var existingJob = imports.findByIdempotencyKey(command.projectId(), command.idempotencyKey());
@@ -99,7 +97,7 @@ public class ImportApplicationService {
             return view(job);
         }
 
-        var entries = findCatalogEntries(command.actorId(), command.projectId(), command.namespaceId());
+        var entries = findCatalogEntries(command.actorId(), command.projectId());
         var changes = new ArrayList<PreviewItem>(payload.size());
         for (var item : payload.entrySet()) {
             var entry = entries.get(item.getKey());
@@ -285,13 +283,14 @@ public class ImportApplicationService {
     }
 
     private Map<String, CatalogEntryApplicationService.EntryView> findCatalogEntries(
-            long actorId, long projectId, long namespaceId) {
+            long actorId, long projectId) {
         var result = new TreeMap<String, CatalogEntryApplicationService.EntryView>();
         int page = 1;
         CatalogEntryApplicationService.EntryPage entries;
         do {
-            entries = catalog.search(new SearchEntries(actorId, projectId, namespaceId,
-                    null, page++, 100));
+            var search = catalog.searchProject(new CatalogEntryApplicationService.SearchProjectEntries(
+                    actorId, projectId, null, page++, 100));
+            entries = search;
             for (var entry : entries.items()) result.put(entry.key(), entry);
         } while ((long) (page - 1) * 100 < entries.total());
         return result;

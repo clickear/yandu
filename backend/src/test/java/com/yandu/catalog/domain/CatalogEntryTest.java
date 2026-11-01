@@ -14,7 +14,7 @@ class CatalogEntryTest {
 
     @Test
     void changingSourceTextCreatesANewRevisionAndEvent() {
-        var entry = new CatalogEntry(ENTRY_ID, PROJECT_ID, "auth.login", "Sign in", 1, 1);
+        var entry = new CatalogEntry(ENTRY_ID, PROJECT_ID, 301, "auth.login", "Sign in", 1, 1);
 
         var change = entry.changeSource(1, "Log in");
 
@@ -28,7 +28,7 @@ class CatalogEntryTest {
 
     @Test
     void unchangedSourceTextDoesNotCreateARevisionOrEvent() {
-        var entry = new CatalogEntry(ENTRY_ID, PROJECT_ID, "auth.login", "Sign in", 4, 7);
+        var entry = new CatalogEntry(ENTRY_ID, PROJECT_ID, 301, "auth.login", "Sign in", 4, 7);
 
         var change = entry.changeSource(4, "Sign in");
 
@@ -41,7 +41,7 @@ class CatalogEntryTest {
 
     @Test
     void staleRevisionIsRejectedInsteadOfOverwritingNewerSource() {
-        var entry = new CatalogEntry(ENTRY_ID, PROJECT_ID, "auth.login", "Sign in", 3, 5);
+        var entry = new CatalogEntry(ENTRY_ID, PROJECT_ID, 301, "auth.login", "Sign in", 3, 5);
 
         assertThrows(CatalogEntry.SourceRevisionConflictException.class,
                 () -> entry.changeSource(2, "Log in"));
@@ -54,18 +54,33 @@ class CatalogEntryTest {
     @Test
     void blankSourceTextIsRejected() {
         assertThrows(IllegalArgumentException.class,
-                () -> new CatalogEntry(ENTRY_ID, PROJECT_ID, "auth.login", "  ", 1, 1));
-        var entry = new CatalogEntry(ENTRY_ID, PROJECT_ID, "auth.login", "Sign in", 1, 1);
+                () -> new CatalogEntry(ENTRY_ID, PROJECT_ID, 301, "auth.login", "  ", 1, 1));
+        var entry = new CatalogEntry(ENTRY_ID, PROJECT_ID, 301, "auth.login", "Sign in", 1, 1);
         assertThrows(IllegalArgumentException.class,
                 () -> entry.changeSource(1, "\n\t"));
     }
 
     @Test
     void keyIsTrimmedWithoutChangingCaseAndLimitedToTwoHundredCharacters() {
-        var entry = new CatalogEntry(ENTRY_ID, PROJECT_ID, "  Auth.Login  ", "Sign in", 1, 1);
+        var entry = new CatalogEntry(ENTRY_ID, PROJECT_ID, 301, "  Auth.Login  ", "Sign in", 1, 1);
 
         assertEquals("Auth.Login", entry.key());
         assertThrows(IllegalArgumentException.class,
-                () -> new CatalogEntry(ENTRY_ID, PROJECT_ID, "k".repeat(201), "Sign in", 1, 1));
+                () -> new CatalogEntry(ENTRY_ID, PROJECT_ID, 301, "k".repeat(201), "Sign in", 1, 1));
+    }
+
+    @Test
+    void reorganizingChangesKeyAndNamespaceButPreservesSourceRevisionAndRequiresCurrentVersion() {
+        var entry = new CatalogEntry(ENTRY_ID, PROJECT_ID, 301, "auth.login", "Sign in", 4, 7);
+
+        var change = entry.reorganize(7, 302, "account.sign-in");
+
+        assertTrue(change.changed());
+        assertEquals(302, entry.namespaceId());
+        assertEquals("account.sign-in", entry.key());
+        assertEquals(4, entry.sourceRevision());
+        assertEquals(8, entry.version());
+        assertThrows(CatalogEntry.VersionConflictException.class,
+                () -> entry.reorganize(7, 303, "account.sign-in"));
     }
 }

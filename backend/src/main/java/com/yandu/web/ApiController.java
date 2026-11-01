@@ -338,6 +338,15 @@ public class ApiController {
                 actors.resolve(principal), projectId, entryId));
     }
 
+    @PutMapping("/projects/{projectId}/catalog/entries/{entryId}/organization")
+    public CatalogEntryApplicationService.EntryView reorganizeEntry(
+            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+            @PathVariable long entryId, @Valid @RequestBody ReorganizeEntryBody body) {
+        return catalog.reorganize(new CatalogEntryApplicationService.ReorganizeEntry(
+                actors.resolve(principal), projectId, entryId, body.expectedVersion(),
+                positiveId(body.namespaceId(), "namespaceId"), body.key()));
+    }
+
     @GetMapping("/projects/{projectId}/catalog/entries/{entryId}/translations/{locale}")
     public TranslationApplicationService.TranslationView translation(
             @AuthenticationPrincipal Jwt principal,
@@ -579,6 +588,9 @@ public class ApiController {
 
     public record ChangeSourceBody(long expectedSourceRevision,
                                    @NotBlank @Size(max = 16000) String sourceText) { }
+
+    public record ReorganizeEntryBody(long expectedVersion, @NotBlank String namespaceId,
+                                      @NotBlank @Size(max = 200) String key) { }
 
     public record SaveTranslationBody(long expectedVersion, long basedOnSourceRevision,
                                       @jakarta.validation.constraints.NotNull @Size(max = 16000) String value) { }

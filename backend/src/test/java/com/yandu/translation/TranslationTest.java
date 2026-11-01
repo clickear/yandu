@@ -35,7 +35,7 @@ class TranslationTest {
         given(workspace.getProject(41L, 10L)).willReturn(new WorkspaceApplicationService.ProjectView(
                 "10", "41", "Store", "zh-CN", java.util.Set.of("en-US"), 1, "11"));
         given(catalog.get(41L, 10L, 20L)).willReturn(new CatalogEntryApplicationService.EntryView(
-                "20", "10", "home.greeting", "Hello {user}", 3, 3, false));
+                "20", "10", "11", "home.greeting", "Hello {user}", 3, 3, false));
         given(repository.find(10L, 20L, "en-US")).willReturn(Optional.of(
                 Translation.restore(30L, 10L, 20L, "en-US", "Hello {name}", 3,
                         Translation.Status.DRAFT, 1, 41L, 41L)));

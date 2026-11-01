@@ -237,6 +237,14 @@ export function updateRemoteSource(projectId: string, entryId: string, expectedS
   })
 }
 
+export async function reorganizeRemoteEntry(projectId: string, entryId: string,
+                                            namespaceId: string, key: string) {
+  const current = await request<{ version: number }>(`/projects/${projectId}/catalog/entries/${entryId}`)
+  return request(`/projects/${projectId}/catalog/entries/${entryId}/organization`, {
+    method: 'PUT', body: JSON.stringify({ expectedVersion: current.version, namespaceId, key }),
+  })
+}
+
 export function readRemoteSourceHistory(projectId: string, entryId: string) {
   return request<{ id: string; sourceRevision: number; sourceText: string; changedBy: string; createdAt: string }[]>(
     `/projects/${projectId}/catalog/entries/${entryId}/history`,

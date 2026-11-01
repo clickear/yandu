@@ -2,6 +2,7 @@ package com.yandu.web;
 
 import com.yandu.catalog.CatalogEntryApplicationService.CatalogEntryNotFoundException;
 import com.yandu.catalog.CatalogEntryApplicationService.SourceRevisionConflictException;
+import com.yandu.catalog.CatalogEntryApplicationService.CatalogVersionConflictException;
 import com.yandu.translation.TranslationApplicationService.TargetLocaleNotConfiguredException;
 import com.yandu.translation.TranslationApplicationService.TranslationNotFoundException;
 import com.yandu.translation.TranslationApplicationService.TranslationVersionConflictException;
@@ -42,11 +43,18 @@ public class ApiExceptionHandler {
         return problem(HttpStatus.NOT_FOUND, "Resource not found", exception.getMessage());
     }
 
-    @ExceptionHandler(SourceRevisionConflictException.class)
-    ProblemDetail revisionConflict(SourceRevisionConflictException exception) {
-        var detail = problem(HttpStatus.CONFLICT, "Source revision conflict", exception.getMessage());
-        detail.setProperty("expectedRevision", exception.expectedRevision());
-        detail.setProperty("actualRevision", exception.actualRevision());
+    @ExceptionHandler({SourceRevisionConflictException.class, CatalogVersionConflictException.class})
+    ProblemDetail revisionConflict(RuntimeException exception) {
+        if (exception instanceof CatalogVersionConflictException conflict) {
+            var detail = problem(HttpStatus.CONFLICT, "Catalog version conflict", conflict.getMessage());
+            detail.setProperty("expectedVersion", conflict.expectedVersion());
+            detail.setProperty("actualVersion", conflict.actualVersion());
+            return detail;
+        }
+        var sourceConflict = (SourceRevisionConflictException) exception;
+        var detail = problem(HttpStatus.CONFLICT, "Source revision conflict", sourceConflict.getMessage());
+        detail.setProperty("expectedRevision", sourceConflict.expectedRevision());
+        detail.setProperty("actualRevision", sourceConflict.actualRevision());
         return detail;
     }
 

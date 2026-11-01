@@ -7,18 +7,20 @@ public final class CatalogEntry {
 
     private final long id;
     private final long projectId;
-    private final String key;
+    private long namespaceId;
+    private String key;
     private String sourceText;
     private long sourceRevision;
     private long version;
 
-    public CatalogEntry(long id, long projectId, String key, String sourceText,
+    public CatalogEntry(long id, long projectId, long namespaceId, String key, String sourceText,
                         long sourceRevision, long version) {
-        if (id <= 0 || projectId <= 0) {
-            throw new IllegalArgumentException("id and projectId must be positive");
+        if (id <= 0 || projectId <= 0 || namespaceId <= 0) {
+            throw new IllegalArgumentException("id, projectId and namespaceId must be positive");
         }
         this.id = id;
         this.projectId = projectId;
+        this.namespaceId = namespaceId;
         this.key = normalizeKey(key);
         this.sourceText = requireText(sourceText, "sourceText");
         if (sourceRevision < 1 || version < 1) {
@@ -53,6 +55,8 @@ public final class CatalogEntry {
         return id;
     }
 
+    public long namespaceId() { return namespaceId; }
+
     public long projectId() {
         return projectId;
     }
@@ -71,6 +75,25 @@ public final class CatalogEntry {
 
     public long version() {
         return version;
+    }
+
+    /** Reorganizes metadata without changing source revision or translation identity. */
+    public Reorganization reorganize(long expectedVersion, long targetNamespaceId, String newKey) {
+        if (expectedVersion != version) {
+            throw new VersionConflictException(expectedVersion, version);
+        }
+        if (targetNamespaceId <= 0) throw new IllegalArgumentException("namespaceId must be positive");
+        var normalizedKey = normalizeKey(newKey);
+        var previousNamespaceId = namespaceId;
+        var previousKey = key;
+        if (previousNamespaceId == targetNamespaceId && previousKey.equals(normalizedKey)) {
+            return new Reorganization(previousNamespaceId, previousKey, version, version, false);
+        }
+        var previousVersion = version;
+        namespaceId = targetNamespaceId;
+        key = normalizedKey;
+        version = Math.incrementExact(version);
+        return new Reorganization(previousNamespaceId, previousKey, previousVersion, version, true);
     }
 
     private static String normalizeKey(String value) {
@@ -99,6 +122,21 @@ public final class CatalogEntry {
             long currentVersion,
             boolean changed) {
 
+    }
+
+    public record Reorganization(long previousNamespaceId, String previousKey,
+                                 long previousVersion, long currentVersion, boolean changed) { }
+
+    public static final class VersionConflictException extends RuntimeException {
+        private final long expectedVersion;
+        private final long actualVersion;
+        public VersionConflictException(long expectedVersion, long actualVersion) {
+            super("Expected catalog version " + expectedVersion + " but found " + actualVersion);
+            this.expectedVersion = expectedVersion;
+            this.actualVersion = actualVersion;
+        }
+        public long expectedVersion() { return expectedVersion; }
+        public long actualVersion() { return actualVersion; }
     }
 
     public static final class SourceRevisionConflictException extends RuntimeException {

@@ -73,6 +73,15 @@ public interface CatalogEntryMapper extends BaseMapper<CatalogEntryMapper.Catalo
                      @Param("namespaceId") long namespaceId,
                      @Param("keyword") String keyword);
 
+    @Select("SELECT id, project_id, namespace_id, source_locale, entry_key, source_text, source_revision, version, status, created_by, updated_by, created_at, updated_at FROM catalog_entries WHERE project_id = #{projectId} AND status = 'ACTIVE' AND (#{keyword} IS NULL OR entry_key LIKE CONCAT('%', #{keyword}, '%')) ORDER BY id DESC LIMIT #{limit} OFFSET #{offset}")
+    List<CatalogEntryRow> searchProjectActive(@Param("projectId") long projectId,
+                                              @Param("keyword") String keyword,
+                                              @Param("offset") int offset,
+                                              @Param("limit") int limit);
+
+    @Select("SELECT COUNT(*) FROM catalog_entries WHERE project_id = #{projectId} AND status = 'ACTIVE' AND (#{keyword} IS NULL OR entry_key LIKE CONCAT('%', #{keyword}, '%'))")
+    long countProjectActive(@Param("projectId") long projectId, @Param("keyword") String keyword);
+
     @Update("""
             UPDATE catalog_entries
                SET status = 'ARCHIVED', updated_by = #{actorId}, updated_at = #{updatedAt}
@@ -106,6 +115,12 @@ public interface CatalogEntryMapper extends BaseMapper<CatalogEntryMapper.Catalo
             @Param("sourceText") String sourceText,
             @Param("actorId") long actorId,
             @Param("updatedAt") java.time.Instant updatedAt);
+
+    @Update("UPDATE catalog_entries SET namespace_id = #{namespaceId}, entry_key = #{entryKey}, version = #{newVersion}, updated_by = #{actorId}, updated_at = #{updatedAt} WHERE project_id = #{projectId} AND id = #{entryId} AND version = #{expectedVersion} AND status = 'ACTIVE'")
+    int reorganizeOptimistically(@Param("projectId") long projectId, @Param("entryId") long entryId,
+                                 @Param("namespaceId") long namespaceId, @Param("entryKey") String entryKey,
+                                 @Param("expectedVersion") long expectedVersion, @Param("newVersion") long newVersion,
+                                 @Param("actorId") long actorId, @Param("updatedAt") Instant updatedAt);
 
     @Insert("""
             INSERT INTO glossary_terms

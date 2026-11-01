@@ -84,6 +84,7 @@ import {
   listRemoteNamespaces,
   restoreRemoteNamespace,
   renameRemoteNamespace,
+  reorganizeRemoteEntry,
   createMachineTranslationJob,
   listMachineTranslationJobs,
   getMachineTranslationJobItems,
@@ -1147,6 +1148,33 @@ export default function App() {
                                 onClick={() => { setSourceEditingId(entry.id); setSourceText(entry.source) }}>
                                 源文
                               </button>
+                              {backendEnabled && canManageCatalog && (
+                                <>
+                                  <button className="button plain" aria-label={`改键 ${entry.key}`} onClick={async () => {
+                                    const key = window.prompt('词条键（项目内唯一）', entry.key)?.trim()
+                                    if (!key || key === entry.key) return
+                                    try {
+                                      await reorganizeRemoteEntry(project.id, entry.id, activeNamespaceId, key)
+                                      setRemoteRefresh((value) => value + 1)
+                                      notify('词条键已更新，译文与审核状态已保留。')
+                                    } catch (error) { notify(error instanceof Error ? error.message : '改键失败。', true) }
+                                  }}>改键</button>
+                                  <select aria-label={`移动 ${entry.key} 到命名空间`} value={activeNamespaceId}
+                                    onChange={async (event) => {
+                                      const targetNamespaceId = event.target.value
+                                      if (targetNamespaceId === activeNamespaceId) return
+                                      try {
+                                        await reorganizeRemoteEntry(project.id, entry.id, targetNamespaceId, entry.key)
+                                        setRemoteRefresh((value) => value + 1)
+                                        notify('词条已移动，译文与审核状态已保留。')
+                                      } catch (error) { notify(error instanceof Error ? error.message : '移动词条失败。', true) }
+                                    }}>
+                                    {namespaces.filter((item) => item.status === 'ACTIVE').map((item) => (
+                                      <option key={item.id} value={item.id}>{item.name}</option>
+                                    ))}
+                                  </select>
+                                </>
+                              )}
                               {backendEnabled && canManageCatalog && (
                                 <button className="icon-button" aria-label={`归档 ${entry.key}`}
                                   onClick={() => void archiveEntry(entry)}>

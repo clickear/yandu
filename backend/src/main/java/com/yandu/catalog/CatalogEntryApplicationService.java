@@ -69,7 +69,7 @@ public class CatalogEntryApplicationService {
         var now = clock.instant();
         var entryId = ids.getAsLong();
         var entry = new CatalogEntry(
-                entryId, projectId, key, sourceText, 1, 1);
+                entryId, projectId, namespaceId, key, sourceText, 1, 1);
         entries.insert(namespaceId, sourceLocale, entry, actorId, now);
         audit.record(projectId, actorId, "CATALOG_ENTRY_CREATED",
                 "CATALOG_ENTRY", entryId, java.util.Map.of("namespaceId", namespaceId,
@@ -139,6 +139,15 @@ public class CatalogEntryApplicationService {
     }
 
     @Transactional(readOnly = true)
+    public EntryPage searchProject(SearchProjectEntries query) {
+        accessPolicy.requireCanReadCatalog(query.actorId(), query.projectId());
+        int offset = Math.multiplyExact(query.page() - 1, query.pageSize());
+        var result = entries.searchProject(query.projectId(), query.keyword(), offset, query.pageSize());
+        return new EntryPage(query.page(), query.pageSize(), result.total(),
+                result.items().stream().map(entry -> EntryView.from(entry, false)).toList());
+    }
+
+    @Transactional(readOnly = true)
     public List<RevisionView> history(ReadHistory query) {
         accessPolicy.requireCanReadCatalog(query.actorId(), query.projectId());
         entries.findForRead(query.projectId(), query.entryId())
@@ -159,6 +168,25 @@ public class CatalogEntryApplicationService {
         }
         audit.record(command.projectId(), command.actorId(), "CATALOG_ENTRY_ARCHIVED",
                 "CATALOG_ENTRY", command.entryId(), java.util.Map.of());
+    }
+
+    @Transactional
+    public EntryView reorganize(ReorganizeEntry command) {
+        accessPolicy.requireCanManageCatalog(command.actorId(), command.projectId());
+        var entry = entries.findForSourceEdit(command.projectId(), command.entryId())
+                .orElseThrow(() -> new CatalogEntryNotFoundException(command.entryId()));
+        workspace.requireActiveNamespace(command.projectId(), command.namespaceId());
+        var change = entry.reorganize(command.expectedVersion(), command.namespaceId(), command.key());
+        if (change.changed()) {
+            var occurredAt = clock.instant();
+            entries.persistReorganization(entry, change, command.actorId(), occurredAt);
+            audit.record(command.projectId(), command.actorId(), "CATALOG_ENTRY_REORGANIZED",
+                    "CATALOG_ENTRY", command.entryId(), java.util.Map.of(
+                            "fromNamespaceId", change.previousNamespaceId(),
+                            "toNamespaceId", entry.namespaceId(), "fromKey", change.previousKey(),
+                            "toKey", entry.key()));
+        }
+        return EntryView.from(entry, change.changed());
     }
 
     @Transactional
@@ -287,6 +315,16 @@ public class CatalogEntryApplicationService {
         }
     }
 
+    public record SearchProjectEntries(long actorId, long projectId, String keyword,
+                                       int page, int pageSize) {
+        public SearchProjectEntries {
+            requirePositive(actorId, "actorId"); requirePositive(projectId, "projectId");
+            if (page < 1 || pageSize < 1 || pageSize > 100) {
+                throw new IllegalArgumentException("page must be positive and pageSize must be between 1 and 100");
+            }
+        }
+    }
+
     public record ReadHistory(long actorId, long projectId, long entryId) {
         public ReadHistory {
             requirePositive(actorId, "actorId");
@@ -301,6 +339,26 @@ public class CatalogEntryApplicationService {
             requirePositive(projectId, "projectId");
             requirePositive(entryId, "entryId");
         }
+    }
+
+    public record ReorganizeEntry(long actorId, long projectId, long entryId,
+                                  long expectedVersion, long namespaceId, String key) {
+        public ReorganizeEntry {
+            requirePositive(actorId, "actorId"); requirePositive(projectId, "projectId");
+            requirePositive(entryId, "entryId"); requirePositive(expectedVersion, "expectedVersion");
+            requirePositive(namespaceId, "namespaceId");
+        }
+    }
+
+    public static final class CatalogVersionConflictException extends RuntimeException {
+        private final long expectedVersion;
+        private final long actualVersion;
+        public CatalogVersionConflictException(long expectedVersion, long actualVersion) {
+            super("Expected catalog version " + expectedVersion + " but found " + actualVersion);
+            this.expectedVersion = expectedVersion; this.actualVersion = actualVersion;
+        }
+        public long expectedVersion() { return expectedVersion; }
+        public long actualVersion() { return actualVersion; }
     }
 
     public record EntryPage(int page, int pageSize, long total, List<EntryView> items) {
@@ -347,11 +405,12 @@ public class CatalogEntryApplicationService {
                                 long actorId, java.time.Instant occurredAt) {
     }
 
-    public record EntryView(String id, String projectId, String key, String sourceText,
+    public record EntryView(String id, String projectId, String namespaceId, String key, String sourceText,
                             long sourceRevision, long version, boolean changed) {
         private static EntryView from(CatalogEntry entry, boolean changed) {
             // Snowflake IDs exceed JavaScript's exact integer range, so the API boundary uses strings.
             return new EntryView(Long.toString(entry.id()), Long.toString(entry.projectId()),
+                    Long.toString(entry.namespaceId()),
                     entry.key(), entry.sourceText(),
                     entry.sourceRevision(), entry.version(), changed);
         }
