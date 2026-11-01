@@ -64,7 +64,8 @@ public class ApiController {
     public WorkspaceApplicationService.ProjectView createProject(
             @AuthenticationPrincipal Jwt principal, @Valid @RequestBody CreateProjectBody body) {
         return workspace.create(new WorkspaceApplicationService.CreateProject(
-                actors.resolve(principal), body.name(), body.sourceLocale()));
+                actors.resolve(principal), body.name(), body.sourceLocale(), body.description(),
+                body.targetLocales() == null ? null : java.util.Set.copyOf(body.targetLocales())));
     }
 
     @GetMapping("/me")
@@ -109,6 +110,62 @@ public class ApiController {
                           @Valid @RequestBody AddMemberBody body) {
         workspace.addMember(new WorkspaceApplicationService.AddMember(
                 actors.resolve(principal), projectId, positiveId(body.userId(), "userId"), body.role()));
+    }
+
+    @PutMapping("/projects/{projectId}/members/{userId}")
+    public void changeMemberRole(@AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+                                 @PathVariable long userId, @Valid @RequestBody ChangeMemberRoleBody body) {
+        workspace.changeMemberRole(new WorkspaceApplicationService.ChangeMemberRole(
+                actors.resolve(principal), projectId, userId, body.role()));
+    }
+
+    @DeleteMapping("/projects/{projectId}/members/{userId}")
+    public void removeMember(@AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+                             @PathVariable long userId) {
+        workspace.removeMember(new WorkspaceApplicationService.RemoveMember(
+                actors.resolve(principal), projectId, userId));
+    }
+
+    @PostMapping("/projects/{projectId}/leave")
+    public void leaveProject(@AuthenticationPrincipal Jwt principal, @PathVariable long projectId) {
+        workspace.leaveProject(actors.resolve(principal), projectId);
+    }
+
+    @PostMapping("/projects/{projectId}/ownership-transfer")
+    public void transferProjectOwnership(@AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+                                         @Valid @RequestBody TransferOwnershipBody body) {
+        workspace.transferOwnership(new WorkspaceApplicationService.TransferOwnership(
+                actors.resolve(principal), projectId, positiveId(body.newOwnerId(), "newOwnerId")));
+    }
+
+    @PostMapping("/projects/{projectId}/archive")
+    public void archiveProject(@AuthenticationPrincipal Jwt principal, @PathVariable long projectId) {
+        workspace.archiveProject(actors.resolve(principal), projectId);
+    }
+
+    @PostMapping("/projects/{projectId}/restore")
+    public void restoreProject(@AuthenticationPrincipal Jwt principal, @PathVariable long projectId) {
+        workspace.restoreProject(actors.resolve(principal), projectId);
+    }
+
+    @DeleteMapping("/projects/{projectId}/languages/{locale}")
+    public java.util.List<String> archiveTargetLocale(@AuthenticationPrincipal Jwt principal,
+                                                       @PathVariable long projectId,
+                                                       @PathVariable String locale) {
+        return workspace.archiveTargetLocale(actors.resolve(principal), projectId, locale);
+    }
+
+    @PostMapping("/projects/{projectId}/languages/{locale}/restore")
+    public java.util.List<String> restoreTargetLocale(@AuthenticationPrincipal Jwt principal,
+                                                       @PathVariable long projectId,
+                                                       @PathVariable String locale) {
+        return workspace.restoreTargetLocale(actors.resolve(principal), projectId, locale);
+    }
+
+    @GetMapping("/projects/{projectId}/languages/archived")
+    public java.util.List<String> archivedTargetLocales(@AuthenticationPrincipal Jwt principal,
+                                                        @PathVariable long projectId) {
+        return workspace.archivedTargetLocales(actors.resolve(principal), projectId);
     }
 
     @PostMapping("/projects/{projectId}/catalog/entries")
@@ -418,7 +475,9 @@ public class ApiController {
     }
 
     public record CreateProjectBody(@NotBlank @Size(max = 120) String name,
-                                    @NotBlank @Size(max = 35) String sourceLocale) { }
+                                    @NotBlank @Size(max = 35) String sourceLocale,
+                                    @Size(max = 2000) String description,
+                                    java.util.List<@NotBlank @Size(max = 35) String> targetLocales) { }
 
     public record TargetLocaleBody(@NotBlank @Size(max = 35) String locale) { }
 
@@ -459,6 +518,9 @@ public class ApiController {
 
     public record AddMemberBody(@NotBlank String userId,
                                 @jakarta.validation.constraints.NotNull WorkspaceApplicationService.MemberRole role) { }
+
+    public record ChangeMemberRoleBody(@jakarta.validation.constraints.NotNull WorkspaceApplicationService.MemberRole role) { }
+    public record TransferOwnershipBody(@NotBlank String newOwnerId) { }
 
     public record CurrentActorView(String id) { }
 

@@ -58,7 +58,7 @@ public class CatalogEntryApplicationService {
     @Transactional
     public long createMigratedEntry(long actorId, long projectId, long namespaceId,
                                     String sourceLocale, String key, String sourceText) {
-        accessPolicy.requireCanManageCatalog(actorId, projectId);
+        accessPolicy.requireCanManageMigration(actorId, projectId);
         return Long.parseLong(createEntry(actorId, projectId, namespaceId, sourceLocale,
                 key, sourceText).id());
     }

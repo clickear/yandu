@@ -70,6 +70,7 @@ type ApiProject = {
   sourceLocale: string
   targetLocales: string[]
   defaultNamespaceId: string
+  status?: 'ACTIVE' | 'ARCHIVED'
 }
 
 export function mapProject(project: ApiProject): Project {
@@ -81,6 +82,7 @@ export function mapProject(project: ApiProject): Project {
     targetLanguages: project.targetLocales,
     entries: [],
     defaultNamespaceId: project.defaultNamespaceId,
+    status: project.status ?? 'ACTIVE',
   }
 }
 
@@ -108,17 +110,51 @@ export function addRemoteMember(projectId: string, userId: string, role: string)
   })
 }
 
-export function createRemoteProject(name: string, sourceLocale: string) {
+export function createRemoteProject(name: string, sourceLocale: string, description = '') {
   return request<ApiProject>('/projects', {
     method: 'POST',
-    body: JSON.stringify({ name, sourceLocale }),
+    body: JSON.stringify({ name, sourceLocale, description }),
   })
+}
+
+export function archiveRemoteProject(projectId: string) {
+  return request<void>(`/projects/${projectId}/archive`, { method: 'POST' })
+}
+
+export function restoreRemoteProject(projectId: string) {
+  return request<void>(`/projects/${projectId}/restore`, { method: 'POST' })
+}
+
+export function transferRemoteOwnership(projectId: string, newOwnerId: string) {
+  return request<void>(`/projects/${projectId}/ownership-transfer`, {
+    method: 'POST', body: JSON.stringify({ newOwnerId }),
+  })
+}
+
+export function changeRemoteMemberRole(projectId: string, userId: string, role: string) {
+  return request<void>(`/projects/${projectId}/members/${userId}`, {
+    method: 'PUT', body: JSON.stringify({ role }),
+  })
+}
+
+export function removeRemoteMember(projectId: string, userId: string) {
+  return request<void>(`/projects/${projectId}/members/${userId}`, { method: 'DELETE' })
+}
+
+export function leaveRemoteProject(projectId: string) {
+  return request<void>(`/projects/${projectId}/leave`, { method: 'POST' })
 }
 
 export function addRemoteLocale(projectId: string, locale: string) {
   return request<ApiProject>(`/projects/${projectId}/languages`, {
     method: 'POST',
     body: JSON.stringify({ locale }),
+  })
+}
+
+export function archiveRemoteLocale(projectId: string, locale: string) {
+  return request<string[]>(`/projects/${projectId}/languages/${encodeURIComponent(locale)}`, {
+    method: 'DELETE',
   })
 }
 

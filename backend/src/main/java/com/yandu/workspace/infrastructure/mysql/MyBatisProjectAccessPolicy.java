@@ -25,18 +25,45 @@ public class MyBatisProjectAccessPolicy implements ProjectAccessPolicy {
     }
 
     @Override
+    public void requireCanManageMigration(long actorId, long projectId) {
+        requireActor(actorId);
+        if (mapper.countMemberRolesByStatus(projectId, actorId, "MIGRATING",
+                java.util.List.of("OWNER")) != 1L) {
+            throw new AccessDeniedException("Only the migration Owner can write to a migrating project");
+        }
+    }
+
+    @Override
     public void requireCanManageMembers(long actorId, long projectId) {
+        requireMembership(actorId, projectId, "OWNER", "ADMIN");
+    }
+
+    @Override
+    public void requireCanRestoreProject(long actorId, long projectId) {
+        requireActor(actorId);
+        if (mapper.countMemberRolesByStatus(projectId, actorId, "ARCHIVED",
+                java.util.List.of("OWNER", "ADMIN")) != 1L) {
+            throw new AccessDeniedException("Only a project Owner or Admin can restore an archived project");
+        }
+    }
+
+    @Override
+    public void requireCanTransferOwnership(long actorId, long projectId) {
         requireMembership(actorId, projectId, "OWNER");
     }
 
     @Override
     public void requireCanReadProject(long actorId, long projectId) {
-        requireMembership(actorId, projectId, "OWNER", "ADMIN", "TRANSLATOR", "REVIEWER", "VIEWER");
+        requireActor(actorId);
+        if (mapper.countAnyProjectMemberRoles(projectId, actorId,
+                java.util.List.of("OWNER", "ADMIN", "TRANSLATOR", "REVIEWER", "VIEWER")) != 1L) {
+            throw new AccessDeniedException("Project membership does not allow this operation");
+        }
     }
 
     @Override
     public void requireCanManageCatalog(long actorId, long projectId) {
-        requireMembership(actorId, projectId, "OWNER", "ADMIN", "TRANSLATOR");
+        requireMembership(actorId, projectId, "OWNER", "ADMIN");
     }
 
     @Override

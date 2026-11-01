@@ -7,7 +7,19 @@ public interface ProjectAccessPolicy {
 
     void requireCanManageProject(long actorId, long projectId);
 
+    default void requireCanManageMigration(long actorId, long projectId) {
+        throw new SecurityException("Project migration is not configured");
+    }
+
     void requireCanManageMembers(long actorId, long projectId);
+
+    default void requireCanRestoreProject(long actorId, long projectId) {
+        throw new SecurityException("Project restore is not configured");
+    }
+
+    default void requireCanTransferOwnership(long actorId, long projectId) {
+        throw new SecurityException("Ownership transfer is not configured");
+    }
 
     void requireCanReadProject(long actorId, long projectId);
 

@@ -29,6 +29,7 @@ export interface Project {
   targetLanguages: string[]
   entries: Entry[]
   defaultNamespaceId?: string
+  status?: 'ACTIVE' | 'ARCHIVED'
 }
 export interface Workspace {
   version: 1

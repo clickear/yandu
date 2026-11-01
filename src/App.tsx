@@ -72,6 +72,13 @@ import {
   previewProjectMigration,
   applyProjectMigration,
   getProjectMigration,
+  archiveRemoteProject,
+  restoreRemoteProject,
+  transferRemoteOwnership,
+  changeRemoteMemberRole,
+  removeRemoteMember,
+  leaveRemoteProject,
+  archiveRemoteLocale,
 } from './backend'
 import type { ProjectMigration } from './backend'
 
@@ -412,6 +419,11 @@ export default function App() {
 
   useEffect(() => {
     if (!backendEnabled || authStatus !== 'ready' || !project) return
+    if (project.status === 'ARCHIVED') {
+      setRemoteLoading(false)
+      setRemoteTotal(0); setRemoteAllTotal(0); setRemoteTranslated(0); setRemoteReviewed(0)
+      return
+    }
     let active = true
     setRemoteLoading(true)
     void loadTranslationPage(project, locale, query.trim(), filter, remotePage).then((result) => {
@@ -430,7 +442,7 @@ export default function App() {
       if (active) notify(error instanceof Error ? error.message : '无法加载文案。', true)
     }).finally(() => { if (active) setRemoteLoading(false) })
     return () => { active = false }
-  }, [authStatus, projectId, locale, query, filter, remotePage, remoteRefresh])
+  }, [authStatus, projectId, project?.status, locale, query, filter, remotePage, remoteRefresh])
 
   useEffect(() => {
     if (!backendEnabled || authStatus !== 'ready' || !projectId || !sourceEditingId) {
@@ -551,9 +563,11 @@ export default function App() {
   const availableLanguages = LANGUAGES.filter(
     (l) => l.code !== project?.sourceLanguage && !project?.targetLanguages.includes(l.code),
   )
-  const canManageCatalog = !backendEnabled || ['OWNER', 'ADMIN', 'TRANSLATOR'].includes(projectRole ?? '')
-  const canManageMembers = ['OWNER', 'ADMIN'].includes(projectRole ?? '')
-  const canManageGlossary = ['OWNER', 'ADMIN'].includes(projectRole ?? '')
+  const projectActive = !backendEnabled || project?.status !== 'ARCHIVED'
+  const canManageCatalog = projectActive && (!backendEnabled || ['OWNER', 'ADMIN'].includes(projectRole ?? ''))
+  const canManageMembers = projectActive && ['OWNER', 'ADMIN'].includes(projectRole ?? '')
+  const canManageProject = ['OWNER', 'ADMIN'].includes(projectRole ?? '')
+  const canManageGlossary = projectActive && ['OWNER', 'ADMIN'].includes(projectRole ?? '')
 
   useEffect(() => {
     if (!backendEnabled || modal !== 'glossary' || !project) return
@@ -776,16 +790,54 @@ export default function App() {
                   </span>
                   {backendEnabled && (
                     <>
+                      {canManageProject && project.status === 'ARCHIVED' && (
+                        <button className="button secondary" onClick={async () => {
+                          try {
+                            await restoreRemoteProject(project.id)
+                            const projects = (await listProjects()).map(mapProject)
+                            setWorkspace({ version: 1, projects })
+                            notify('项目已恢复。')
+                          } catch (error) { notify(error instanceof Error ? error.message : '项目恢复失败。', true) }
+                        }}>恢复项目</button>
+                      )}
+                      {canManageProject && project.status !== 'ARCHIVED' && (
+                        <button className="button secondary" onClick={async () => {
+                          if (!window.confirm(`确定归档「${project.name}」？历史发布和审计记录仍可读取。`)) return
+                          try {
+                            await archiveRemoteProject(project.id)
+                            const projects = (await listProjects()).map(mapProject)
+                            setWorkspace({ version: 1, projects })
+                            notify('项目已归档，历史发布与审计记录仍可查询。')
+                          } catch (error) { notify(error instanceof Error ? error.message : '项目归档失败。', true) }
+                        }}>归档项目</button>
+                      )}
                       <button className="button secondary" onClick={() => openModal('glossary')}>
                         术语库
                       </button>
                       <button className="button secondary" onClick={() => openModal('members')}>
                         项目成员
                       </button>
+                      {canManageProject && projectActive && project.targetLanguages.length > 1 && (
+                        <button className="button secondary" onClick={async () => {
+                          if (!window.confirm(`归档当前目标语言 ${locale}？旧发布仍可下载，译文和审计会保留。`)) return
+                          try {
+                            const targetLanguages = await archiveRemoteLocale(project.id, locale)
+                            updateProject({ ...project, targetLanguages })
+                            if (!targetLanguages.includes(locale)) setLocale(targetLanguages[0])
+                            setRemotePage(1)
+                            notify('目标语言已归档。')
+                          } catch (error) { notify(error instanceof Error ? error.message : '目标语言归档失败。', true) }
+                        }}>归档此语言</button>
+                      )}
                     </>
                   )}
                 </div>
               </section>
+              {backendEnabled && project.status === 'ARCHIVED' && (
+                <div className="warning-banner" role="status">
+                  项目已归档。词条、译文和发布不能修改；具有项目成员身份的用户仍可查询历史发布与审计记录。
+                </div>
+              )}
               <section className="stats-grid" aria-label="项目概况">
                 <div className="stat-card">
                   <div>
@@ -1048,7 +1100,7 @@ export default function App() {
             onSubmit={(e) =>
               submit(e, async (data) => {
                 const p = backendEnabled
-                  ? mapProject(await createRemoteProject(String(data.get('name')), String(data.get('source'))))
+                  ? mapProject(await createRemoteProject(String(data.get('name')), String(data.get('source')), String(data.get('description') ?? '')))
                   : createProject(String(data.get('name')), String(data.get('description')), String(data.get('source')))
                 setWorkspace((w) => ({ ...w, projects: [...w.projects, p] }))
                 chooseProject(p)
@@ -1060,12 +1112,10 @@ export default function App() {
               项目名称
               <input name="name" required maxLength={80} placeholder="例如：移动应用" autoFocus />
             </label>
-            {!backendEnabled && (
-              <label>
-                项目描述
-                <input name="description" maxLength={200} placeholder="这个项目想向世界表达什么？" />
-              </label>
-            )}
+            <label>
+              项目描述
+              <input name="description" maxLength={2000} placeholder="这个项目想向世界表达什么？" />
+            </label>
             <label>
               源语言
               <select name="source" defaultValue="zh-CN">
@@ -1207,6 +1257,32 @@ export default function App() {
                     <code>{member.userId}</code>
                     <span>{member.role}</span>
                     <time>{new Date(member.createdAt).toLocaleDateString()}</time>
+                    {canManageMembers && member.role !== 'OWNER' && member.userId !== actorId
+                      && (projectRole === 'OWNER' || member.role !== 'ADMIN') && (
+                      <>
+                        <select aria-label={`设置 ${member.userId} 的项目角色`} value={member.role}
+                          onChange={async (event) => {
+                            try {
+                              await changeRemoteMemberRole(project.id, member.userId, event.target.value)
+                              setProjectMembers(await listRemoteMembers(project.id))
+                              notify('成员角色已更新。')
+                            } catch (error) { notify(error instanceof Error ? error.message : '角色更新失败。', true) }
+                          }}>
+                          {projectRole === 'OWNER' && <option value="ADMIN">ADMIN</option>}
+                          <option value="TRANSLATOR">TRANSLATOR</option>
+                          <option value="REVIEWER">REVIEWER</option>
+                          <option value="VIEWER">VIEWER</option>
+                        </select>
+                        <button type="button" className="button plain" onClick={async () => {
+                          if (!window.confirm(`从项目中移除成员 ${member.userId}？`)) return
+                          try {
+                            await removeRemoteMember(project.id, member.userId)
+                            setProjectMembers(await listRemoteMembers(project.id))
+                            notify('成员已移除。')
+                          } catch (error) { notify(error instanceof Error ? error.message : '成员移除失败。', true) }
+                        }}>移除</button>
+                      </>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -1229,7 +1305,7 @@ export default function App() {
               </label>
               <label>项目角色
                 <select name="role" defaultValue="TRANSLATOR">
-                  <option value="ADMIN">管理员</option>
+                  {projectRole === 'OWNER' && <option value="ADMIN">管理员</option>}
                   <option value="TRANSLATOR">译员</option>
                   <option value="REVIEWER">审校员</option>
                   <option value="VIEWER">只读成员</option>
@@ -1246,6 +1322,38 @@ export default function App() {
               <p className="form-hint">只有项目所有者或管理员可以添加成员。</p>
               <button type="button" className="button secondary" onClick={() => setModal(null)}>关闭</button>
             </div>
+          )}
+          {projectRole === 'OWNER' && (
+            <form onSubmit={(event) => submit(event, async (data) => {
+              const newOwnerId = String(data.get('newOwnerId'))
+              await transferRemoteOwnership(project.id, newOwnerId)
+              setProjectMembers(await listRemoteMembers(project.id))
+              setProjectRole('ADMIN')
+              notify('项目所有权已转移给新 Owner。')
+            })}>
+              <label>转让项目所有权
+                <select name="newOwnerId" required defaultValue="">
+                  <option value="" disabled>选择现有 Admin</option>
+                  {projectMembers.filter((member) => member.role === 'ADMIN').map((member) =>
+                    <option key={member.userId} value={member.userId}>{member.userId}</option>)}
+                </select>
+              </label>
+              <button className="button secondary" type="submit"
+                disabled={!projectMembers.some((member) => member.role === 'ADMIN')}>转让所有权</button>
+            </form>
+          )}
+          {projectRole && projectRole !== 'OWNER' && projectActive && (
+            <button type="button" className="button plain" onClick={async () => {
+              if (!window.confirm('离开项目后将失去访问权限，确定继续吗？')) return
+              try {
+                await leaveRemoteProject(project.id)
+                const projects = (await listProjects()).map(mapProject)
+                setWorkspace({ version: 1, projects })
+                setProjectId(projects[0]?.id ?? '')
+                setModal(null)
+                notify('已离开项目。')
+              } catch (error) { notify(error instanceof Error ? error.message : '离开项目失败。', true) }
+            }}>离开项目</button>
           )}
         </Modal>
       )}

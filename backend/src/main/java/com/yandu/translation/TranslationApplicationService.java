@@ -88,7 +88,7 @@ public class TranslationApplicationService {
     @Transactional
     public void createMigratedDraft(long actorId, long projectId, long entryId,
                                     String locale, String value) {
-        access.requireCanManageTranslation(actorId, projectId);
+        access.requireCanManageMigration(actorId, projectId);
         var normalizedLocale = Translation.normalizeLocale(locale);
         if (value == null || value.isBlank()) return;
         var translation = Translation.newDraft(ids.getAsLong(), projectId, entryId, normalizedLocale);

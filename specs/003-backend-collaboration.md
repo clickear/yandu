@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | 后端语言与框架 | Java + Spring Boot；以 Spring Modulith 约束模块边界 | 当前工程基线；采用版本已锁定，IdP 等部署选择仍需配置 |
 | 架构形态 | DDD 分层的模块化单体，单一可部署应用、模块内独立领域模型 | 首期建议；达到独立扩缩容或团队自治条件后才拆服务 |
-| 数据库 | MySQL 8.0；SQL/持久化边界保持可替换 | 用户已确认 MySQL 8.0 或可切换至 MySQL 8.0；尚未指定/验证第二数据库，不宣称双数据库兼容 |
+| 数据库 | MySQL 8.0 专用实现 | 用户确认直接面向 MySQL 8.0；不要求数据库切换兼容性 |
 | ORM/SQL | MyBatis-Plus；领域层不直接依赖 Mapper 或 Active Record | 用户已确认；租户模式本期不实现，资源授权由应用服务执行 |
 | 主键 | 数字 `BIGINT`，应用生成，API 按十进制字符串传输 | 用户明确不采用 UUID；当前使用 Snowflake ID |
 | Outbox | 本期不实现 | 用户明确排除本期 Outbox |
@@ -44,6 +44,8 @@ Spring Boot、Spring Modulith 与 Spring Security 的选择依据及其职责边
 ## 当前后端实现范围
 
 当前代码建立了通用 OIDC JWT 身份解析、项目成员角色授权、Workspace、Catalog、Translation、Import、Release、AuditLog 模块及 `/api/v1` REST API。前端支持显式 API 模式、OIDC 登录、项目与成员管理、服务端译文工作流、源文修改/历史/归档、术语与翻译记忆建议、JSON 差异预览与异步导入、JSON/Java Properties 发布下载；未配置服务端时保留本地原型。已加入版本 1 的本地项目迁移包预览、确认、幂等异步分批迁移、进度和本地/服务端词条 ID 映射查询，以及迁移失败后同包重试；迁移期间项目保持隐藏。服务端提供公开 liveness/readiness 探针，readiness 检查 MySQL 连通性且不公开组件详情。真实 MySQL 8 集成迁移和 UI→OIDC→API→MySQL 端到端链路尚未验证，正式故障恢复演练未完成。租户模式和 Outbox 本期不实现。
+
+Workspace 生命周期切片已补齐：项目创建默认配置一个目标语言并接受描述；项目和目标语言可归档/恢复（至少一个活动目标语言），归档项目在成员列表可见且可读历史；成员角色可调整/移除/主动离开，Owner 可转让给现有 Admin；Owner/Admin/Translator/Reviewer/Viewer 规则由 Project 聚合校验，项目归档与成员操作写审计。后端 37 项测试（含 Spring Modulith 边界检查）与前端生产构建通过；V6 MySQL 迁移尚未在 MySQL 8.0 实例执行。
 
 工程取舍：优先沿现有模块扩展，不为单一小操作拆出一组类型或单独测试类。用例验证按大模块集中执行；小改动先做编译和差异检查，避免频繁运行全套测试。
 
@@ -88,7 +90,7 @@ Spring Boot、Spring Modulith 与 Spring Security 的选择依据及其职责边
 
 1. 身份提供方与 audience、管理员账户恢复流程、身份主体删除后的审计保留时长。
 2. 面向部署的对象存储、邮件、密钥托管、备份保留期和灾难恢复责任人。
-3. 第二种数据库若为业务目标，须指定产品/版本并完成相同持久化契约验证；目前只承诺 MySQL 8.0。
+3. MySQL 8.0 部署拓扑、连接池、备份保留期和恢复责任人。
 
 ## 验证要求
 

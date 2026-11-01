@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 
 import com.yandu.audit.AuditLog;
 import com.yandu.workspace.application.WorkspaceRepository;
+import com.yandu.workspace.domain.Project;
 import com.yandu.workspace.ProjectAccessPolicy;
 import java.time.Clock;
 import java.time.Instant;
@@ -31,7 +32,7 @@ class WorkspaceApplicationServiceTest {
 
         assertEquals("101", created.id());
         assertEquals("101", created.defaultNamespaceId());
-        assertEquals(Set.of(), created.targetLocales());
+        assertEquals(Set.of("en-US"), created.targetLocales());
         assertEquals("default", repository.defaultNamespaces.get(101L));
     }
 
@@ -39,16 +40,16 @@ class WorkspaceApplicationServiceTest {
     void addingTargetLocaleUpdatesProjectOnceAndRejectsDuplicates() {
         var repository = new InMemoryWorkspaceRepository();
         repository.projects.put(101L, new WorkspaceApplicationService.ProjectSnapshot(
-                101L, 11L, "Storefront", "zh-CN", Set.of(), 1));
+                101L, 11L, "Storefront", "zh-CN", Set.of("en-US"), 1));
         var service = service(repository, new AllowAllPolicy());
 
         var updated = service.addTargetLocale(
-                new WorkspaceApplicationService.AddTargetLocale(11L, 101L, "en-US"));
+                new WorkspaceApplicationService.AddTargetLocale(11L, 101L, "ja-JP"));
 
-        assertEquals(Set.of("en-US"), updated.targetLocales());
+        assertEquals(Set.of("en-US", "ja-JP"), updated.targetLocales());
         assertEquals(2, updated.version());
         assertThrows(IllegalArgumentException.class, () -> service.addTargetLocale(
-                new WorkspaceApplicationService.AddTargetLocale(11L, 101L, "en-US")));
+                new WorkspaceApplicationService.AddTargetLocale(11L, 101L, "ja-JP")));
     }
 
     @Test
@@ -77,7 +78,9 @@ class WorkspaceApplicationServiceTest {
     void ownerCanAddAnExistingUserWithAProjectRole() {
         var repository = new InMemoryWorkspaceRepository();
         repository.projects.put(101L, new WorkspaceApplicationService.ProjectSnapshot(
-                101L, 11L, "Storefront", "zh-CN", Set.of(), 1));
+                101L, 11L, "Storefront", "zh-CN", Set.of("en-US"), 1));
+        repository.members.add(new WorkspaceApplicationService.ProjectMember(
+                11L, WorkspaceApplicationService.MemberRole.OWNER, Instant.parse("2026-10-25T10:00:00Z")));
         repository.users.add(44L);
 
         service(repository, new AllowAllPolicy()).addMember(

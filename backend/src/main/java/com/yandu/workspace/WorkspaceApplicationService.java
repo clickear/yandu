@@ -34,14 +34,18 @@ public class WorkspaceApplicationService {
     @Transactional
     public ProjectView create(CreateProject command) {
         access.requireCanCreateProject(command.actorId());
-        var project = new Project(ids.getAsLong(), command.actorId(), command.name(),
-                command.sourceLocale(), Set.of(), 1);
+        var targetLocales = command.targetLocales() == null || command.targetLocales().isEmpty()
+                ? Set.of(defaultTargetLocale(command.sourceLocale())) : command.targetLocales();
+        var description = command.description() == null ? "" : command.description().trim();
+        if (description.length() > 2000) throw new IllegalArgumentException("description is too long");
+        var project = new Project(ids.getAsLong(), command.actorId(), command.name(), description,
+                command.sourceLocale(), targetLocales, 1, Project.Status.ACTIVE);
         // The default namespace shares the project's numeric ID; IDs are unique per table.
         var namespaceId = project.id();
         projects.insert(snapshot(project), namespaceId, "default", clock.instant());
         audit.record(project.id(), command.actorId(), "PROJECT_CREATED", "PROJECT", project.id(),
                 java.util.Map.of("sourceLocale", project.sourceLocale()));
-        return view(project);
+        return view(snapshot(project));
     }
 
     /** Creates a hidden project shell for the resumable local-project migration workflow. */
@@ -54,9 +58,11 @@ public class WorkspaceApplicationService {
         }
         var normalized = targetLocales.stream().map(Project::validateLocale)
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
-        var project = new Project(ids.getAsLong(), actorId, name, sourceLocale, normalized, 1);
+        var project = new Project(ids.getAsLong(), actorId, name, description, sourceLocale,
+                normalized, 1, Project.Status.MIGRATING);
         var now = clock.instant();
-        projects.insertMigrating(snapshot(project, description), description, project.id(), "default", now);
+        projects.insertMigrating(snapshot(project), description,
+                project.id(), "default", now);
         audit.record(project.id(), actorId, "PROJECT_MIGRATION_STARTED", "PROJECT",
                 project.id(), java.util.Map.of("sourceLocale", project.sourceLocale()));
         return project.id();
@@ -78,18 +84,21 @@ public class WorkspaceApplicationService {
         var existing = projects.find(command.projectId())
                 .orElseThrow(() -> new ProjectNotFoundException(command.projectId()));
         var project = toDomain(existing);
-        project.addTargetLocale(command.locale());
-        var updated = snapshot(project, existing.description());
+        var locale = Project.validateLocale(command.locale());
+        var restoring = projects.archivedTargetLocales(command.projectId()).contains(locale);
+        if (restoring) projects.setTargetLocaleStatus(command.projectId(), locale, "ARCHIVED", "ACTIVE", clock.instant());
+        project.addTargetLocale(locale);
+        var updated = snapshot(project);
         projects.update(updated, clock.instant());
-        audit.record(project.id(), command.actorId(), "TARGET_LOCALE_ADDED", "PROJECT_LANGUAGE",
-                null, java.util.Map.of("locale", command.locale(), "projectVersion", project.version()));
+        audit.record(project.id(), command.actorId(), restoring ? "TARGET_LOCALE_RESTORED" : "TARGET_LOCALE_ADDED",
+                "PROJECT_LANGUAGE", null, java.util.Map.of("locale", locale, "projectVersion", project.version()));
         return view(updated);
     }
 
     @Transactional(readOnly = true)
     public ProjectView getProject(long actorId, long projectId) {
         access.requireCanReadProject(actorId, projectId);
-        var project = projects.find(projectId)
+        var project = projects.findAny(projectId)
                 .orElseThrow(() -> new ProjectNotFoundException(projectId));
         return view(project);
     }
@@ -105,6 +114,12 @@ public class WorkspaceApplicationService {
         access.requireCanManageMembers(command.actorId(), command.projectId());
         projects.find(command.projectId())
                 .orElseThrow(() -> new ProjectNotFoundException(command.projectId()));
+        var project = toDomain(projects.find(command.projectId())
+                .orElseThrow(() -> new ProjectNotFoundException(command.projectId())));
+        var actorRole = projects.members(command.projectId()).stream()
+                .filter(member -> member.userId() == command.actorId()).map(ProjectMember::role)
+                .findFirst().orElseThrow(() -> new SecurityException("Project membership is required"));
+        project.assertCanAddMember(command.actorId(), domainRole(actorRole), domainRole(command.role()));
         if (!projects.userExists(command.userId())) {
             throw new UserNotFoundException(command.userId());
         }
@@ -116,45 +131,168 @@ public class WorkspaceApplicationService {
     @Transactional(readOnly = true)
     public List<ProjectMember> members(long actorId, long projectId) {
         access.requireCanReadProject(actorId, projectId);
-        projects.find(projectId).orElseThrow(() -> new ProjectNotFoundException(projectId));
+        projects.findAny(projectId).orElseThrow(() -> new ProjectNotFoundException(projectId));
         return projects.members(projectId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<String> archivedTargetLocales(long actorId, long projectId) {
+        access.requireCanReadProject(actorId, projectId);
+        projects.findAny(projectId).orElseThrow(() -> new ProjectNotFoundException(projectId));
+        return projects.archivedTargetLocales(projectId);
+    }
+
+    @Transactional
+    public void changeMemberRole(ChangeMemberRole command) {
+        access.requireCanManageMembers(command.actorId(), command.projectId());
+        var project = toDomain(projects.find(command.projectId())
+                .orElseThrow(() -> new ProjectNotFoundException(command.projectId())));
+        var members = projects.members(command.projectId());
+        var actorRole = roleOf(members, command.actorId());
+        var current = roleOf(members, command.userId());
+        project.assertCanChangeMemberRole(command.actorId(), domainRole(actorRole), command.userId(),
+                domainRole(current), domainRole(command.role()));
+        projects.changeMemberRole(command.projectId(), command.userId(), command.role(), clock.instant());
+        audit.record(command.projectId(), command.actorId(), "PROJECT_MEMBER_ROLE_CHANGED", "PROJECT_MEMBER",
+                command.userId(), java.util.Map.of("fromRole", current.name(), "toRole", command.role().name()));
+    }
+
+    @Transactional
+    public void removeMember(RemoveMember command) {
+        access.requireCanManageMembers(command.actorId(), command.projectId());
+        var project = toDomain(projects.find(command.projectId())
+                .orElseThrow(() -> new ProjectNotFoundException(command.projectId())));
+        var members = projects.members(command.projectId());
+        var actorRole = roleOf(members, command.actorId());
+        var targetRole = roleOf(members, command.userId());
+        project.assertCanRemoveMember(command.actorId(), domainRole(actorRole), command.userId(), domainRole(targetRole));
+        projects.removeMember(command.projectId(), command.userId());
+        audit.record(command.projectId(), command.actorId(), "PROJECT_MEMBER_REMOVED", "PROJECT_MEMBER",
+                command.userId(), java.util.Map.of("role", targetRole.name()));
+    }
+
+    @Transactional
+    public void leaveProject(long actorId, long projectId) {
+        access.requireCanReadProject(actorId, projectId);
+        var project = toDomain(projects.findAny(projectId)
+                .orElseThrow(() -> new ProjectNotFoundException(projectId)));
+        var role = roleOf(projects.members(projectId), actorId);
+        project.assertCanLeave(actorId, domainRole(role));
+        projects.removeMember(projectId, actorId);
+        audit.record(projectId, actorId, "PROJECT_MEMBER_LEFT", "PROJECT_MEMBER", actorId,
+                java.util.Map.of("role", role.name()));
+    }
+
+    @Transactional
+    public void transferOwnership(TransferOwnership command) {
+        access.requireCanTransferOwnership(command.actorId(), command.projectId());
+        var existing = projects.find(command.projectId())
+                .orElseThrow(() -> new ProjectNotFoundException(command.projectId()));
+        var project = toDomain(existing);
+        var role = roleOf(projects.members(command.projectId()), command.newOwnerId());
+        project.transferOwnership(command.actorId(), command.newOwnerId(), domainRole(role));
+        projects.transferOwnership(command.projectId(), existing.ownerId(), command.newOwnerId(),
+                existing.version(), project.version(), clock.instant());
+        audit.record(command.projectId(), command.actorId(), "PROJECT_OWNERSHIP_TRANSFERRED", "PROJECT",
+                command.projectId(), java.util.Map.of("newOwnerId", command.newOwnerId()));
+    }
+
+    @Transactional
+    public void archiveProject(long actorId, long projectId) {
+        access.requireCanManageProject(actorId, projectId);
+        var project = toDomain(projects.find(projectId)
+                .orElseThrow(() -> new ProjectNotFoundException(projectId)));
+        project.archive();
+        projects.updateProjectStatus(snapshot(project), "ACTIVE", clock.instant());
+        audit.record(projectId, actorId, "PROJECT_ARCHIVED", "PROJECT", projectId, java.util.Map.of());
+    }
+
+    @Transactional
+    public void restoreProject(long actorId, long projectId) {
+        access.requireCanRestoreProject(actorId, projectId);
+        var project = toDomain(projects.findAny(projectId)
+                .orElseThrow(() -> new ProjectNotFoundException(projectId)));
+        project.restore();
+        projects.updateProjectStatus(snapshot(project), "ARCHIVED", clock.instant());
+        audit.record(projectId, actorId, "PROJECT_RESTORED", "PROJECT", projectId, java.util.Map.of());
+    }
+
+    @Transactional
+    public List<String> archiveTargetLocale(long actorId, long projectId, String locale) {
+        access.requireCanManageProject(actorId, projectId);
+        var normalized = Project.validateLocale(locale);
+        var existing = projects.find(projectId).orElseThrow(() -> new ProjectNotFoundException(projectId));
+        var project = toDomain(existing);
+        project.archiveTargetLocale(normalized);
+        projects.setTargetLocaleStatus(projectId, normalized, "ACTIVE", "ARCHIVED", clock.instant());
+        var updated = snapshot(project);
+        projects.update(updated, clock.instant());
+        audit.record(projectId, actorId, "TARGET_LOCALE_ARCHIVED", "PROJECT_LANGUAGE", null,
+                java.util.Map.of("locale", normalized));
+        return List.copyOf(project.targetLocales());
+    }
+
+    @Transactional
+    public List<String> restoreTargetLocale(long actorId, long projectId, String locale) {
+        access.requireCanManageProject(actorId, projectId);
+        var normalized = Project.validateLocale(locale);
+        if (!projects.archivedTargetLocales(projectId).contains(normalized)) {
+            throw new IllegalArgumentException("Target locale is not archived in this project");
+        }
+        var existing = projects.find(projectId).orElseThrow(() -> new ProjectNotFoundException(projectId));
+        var project = toDomain(existing);
+        project.addTargetLocale(normalized);
+        projects.setTargetLocaleStatus(projectId, normalized, "ARCHIVED", "ACTIVE", clock.instant());
+        var updated = snapshot(project);
+        projects.update(updated, clock.instant());
+        audit.record(projectId, actorId, "TARGET_LOCALE_RESTORED", "PROJECT_LANGUAGE", null,
+                java.util.Map.of("locale", normalized));
+        return List.copyOf(project.targetLocales());
     }
 
     private static Project toDomain(ProjectSnapshot snapshot) {
         return new Project(snapshot.id(), snapshot.ownerId(), snapshot.name(),
-                snapshot.sourceLocale(), snapshot.targetLocales(), snapshot.version());
+                snapshot.description(), snapshot.sourceLocale(), snapshot.targetLocales(),
+                snapshot.version(), Project.Status.valueOf(snapshot.status()));
     }
 
     private static ProjectSnapshot snapshot(Project project) {
         return new ProjectSnapshot(project.id(), project.ownerId(), project.name(),
-                project.sourceLocale(), project.targetLocales(), project.version(), "");
-    }
-
-    private static ProjectSnapshot snapshot(Project project, String description) {
-        return new ProjectSnapshot(project.id(), project.ownerId(), project.name(),
                 project.sourceLocale(), project.targetLocales(), project.version(),
-                description == null ? "" : description);
+                project.description(), project.status().name());
     }
 
-    private static ProjectView view(Project project) {
-        return new ProjectView(Long.toString(project.id()), Long.toString(project.ownerId()),
-                project.name(), project.sourceLocale(), project.targetLocales(),
-                project.version(), Long.toString(project.id()), "");
+    private static MemberRole roleOf(List<ProjectMember> members, long userId) {
+        return members.stream().filter(member -> member.userId() == userId).map(ProjectMember::role)
+                .findFirst().orElseThrow(() -> new UserNotFoundException(userId));
+    }
+
+    private static Project.MemberRole domainRole(MemberRole role) {
+        return Project.MemberRole.valueOf(role.name());
+    }
+
+    private static String defaultTargetLocale(String sourceLocale) {
+        return "en-US".equalsIgnoreCase(Project.validateLocale(sourceLocale)) ? "zh-CN" : "en-US";
     }
 
     private static ProjectView view(ProjectSnapshot project) {
         return new ProjectView(Long.toString(project.id()), Long.toString(project.ownerId()),
                 project.name(), project.sourceLocale(), project.targetLocales(),
-                project.version(), Long.toString(project.id()), project.description());
+                project.version(), Long.toString(project.id()), project.description(), project.status());
     }
 
     public static String normalizeLocale(String locale) {
         return Project.validateLocale(locale);
     }
 
-    public record CreateProject(long actorId, String name, String sourceLocale) {
+    public record CreateProject(long actorId, String name, String sourceLocale,
+                                String description, Set<String> targetLocales) {
+        public CreateProject(long actorId, String name, String sourceLocale) {
+            this(actorId, name, sourceLocale, "", null);
+        }
         public CreateProject {
             if (actorId <= 0) throw new IllegalArgumentException("actorId must be positive");
+            description = description == null ? "" : description;
         }
     }
 
@@ -175,6 +313,10 @@ public class WorkspaceApplicationService {
         }
     }
 
+    public record ChangeMemberRole(long actorId, long projectId, long userId, MemberRole role) { }
+    public record RemoveMember(long actorId, long projectId, long userId) { }
+    public record TransferOwnership(long actorId, long projectId, long newOwnerId) { }
+
     public enum MemberRole { OWNER, ADMIN, TRANSLATOR, REVIEWER, VIEWER }
 
     public record ProjectMember(long userId, MemberRole role, Instant createdAt) {
@@ -186,19 +328,30 @@ public class WorkspaceApplicationService {
     }
 
     public record ProjectSnapshot(long id, long ownerId, String name, String sourceLocale,
-                                  Set<String> targetLocales, long version, String description) {
+                                  Set<String> targetLocales, long version, String description,
+                                  String status) {
+        public ProjectSnapshot(long id, long ownerId, String name, String sourceLocale,
+                               Set<String> targetLocales, long version, String description) {
+            this(id, ownerId, name, sourceLocale, targetLocales, version, description, "ACTIVE");
+        }
         public ProjectSnapshot(long id, long ownerId, String name, String sourceLocale,
                               Set<String> targetLocales, long version) {
-            this(id, ownerId, name, sourceLocale, targetLocales, version, "");
+            this(id, ownerId, name, sourceLocale, targetLocales, version, "", "ACTIVE");
         }
     }
 
     public record ProjectView(String id, String ownerId, String name, String sourceLocale,
                               Set<String> targetLocales, long version, String defaultNamespaceId,
-                              String description) {
+                              String description, String status) {
+        public ProjectView(String id, String ownerId, String name, String sourceLocale,
+                           Set<String> targetLocales, long version, String defaultNamespaceId,
+                           String description) {
+            this(id, ownerId, name, sourceLocale, targetLocales, version, defaultNamespaceId,
+                    description, "ACTIVE");
+        }
         public ProjectView(String id, String ownerId, String name, String sourceLocale,
                            Set<String> targetLocales, long version, String defaultNamespaceId) {
-            this(id, ownerId, name, sourceLocale, targetLocales, version, defaultNamespaceId, "");
+            this(id, ownerId, name, sourceLocale, targetLocales, version, defaultNamespaceId, "", "ACTIVE");
         }
     }
 

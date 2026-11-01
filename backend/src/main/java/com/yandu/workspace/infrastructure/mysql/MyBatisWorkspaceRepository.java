@@ -21,7 +21,7 @@ public class MyBatisWorkspaceRepository implements WorkspaceRepository {
     @Override
     public void insert(ProjectSnapshot project, long namespaceId, String namespaceName,
                        Instant createdAt) {
-        insertProject(project, null, namespaceId, namespaceName, createdAt, "ACTIVE");
+        insertProject(project, project.description(), namespaceId, namespaceName, createdAt, "ACTIVE");
     }
 
     @Override
@@ -61,6 +61,13 @@ public class MyBatisWorkspaceRepository implements WorkspaceRepository {
         return mapper.countProjectName(ownerId, name) > 0;
     }
 
+    @Override public Optional<ProjectSnapshot> findAny(long projectId) {
+        return Optional.ofNullable(mapper.selectById(projectId)).map(row ->
+                new ProjectSnapshot(row.getId(), row.getOwnerId(), row.getName(), row.getSourceLocale(),
+                        java.util.Set.copyOf(mapper.findTargetLocales(projectId)), row.getVersion(),
+                        row.getDescription() == null ? "" : row.getDescription(), row.getStatus()));
+    }
+
     @Override
     public Optional<ProjectSnapshot> find(long projectId) {
         var row = mapper.selectById(projectId);
@@ -69,7 +76,7 @@ public class MyBatisWorkspaceRepository implements WorkspaceRepository {
         }
         return Optional.of(new ProjectSnapshot(row.getId(), row.getOwnerId(), row.getName(),
                 row.getSourceLocale(), java.util.Set.copyOf(mapper.findTargetLocales(projectId)),
-                row.getVersion(), row.getDescription()));
+                row.getVersion(), row.getDescription(), row.getStatus()));
     }
 
     @Override
@@ -77,7 +84,7 @@ public class MyBatisWorkspaceRepository implements WorkspaceRepository {
         return mapper.findActiveForMember(actorId).stream()
                 .map(row -> new ProjectSnapshot(row.getId(), row.getOwnerId(), row.getName(),
                         row.getSourceLocale(), java.util.Set.copyOf(mapper.findTargetLocales(row.getId())),
-                        row.getVersion(), row.getDescription()))
+                        row.getVersion(), row.getDescription(), row.getStatus()))
                 .toList();
     }
 
@@ -91,12 +98,55 @@ public class MyBatisWorkspaceRepository implements WorkspaceRepository {
         mapper.addMember(projectId, userId, role.name(), createdAt);
     }
 
+    @Override public void changeMemberRole(long projectId, long userId, MemberRole role, Instant updatedAt) {
+        if (mapper.changeMemberRole(projectId, userId, role.name()) != 1) {
+            throw new IllegalStateException("Project member changed concurrently; reload and retry");
+        }
+    }
+
+    @Override public void removeMember(long projectId, long userId) {
+        if (mapper.removeMember(projectId, userId) != 1) throw new IllegalStateException("Project member was not found");
+    }
+
+    @Override public void transferOwnership(long projectId, long currentOwnerId, long newOwnerId,
+                                            long expectedVersion, long newVersion, Instant updatedAt) {
+        if (mapper.changeMemberRole(projectId, currentOwnerId, MemberRole.ADMIN.name()) != 1
+                || mapper.changeMemberRole(projectId, newOwnerId, MemberRole.OWNER.name()) != 1
+                || mapper.transferProjectOwner(projectId, currentOwnerId, newOwnerId,
+                        expectedVersion, newVersion, updatedAt) != 1) {
+            throw new IllegalStateException("Project ownership changed concurrently; reload and retry");
+        }
+    }
+
+    @Override public void updateProjectStatus(ProjectSnapshot project, String expectedStatus,
+                                              Instant updatedAt) {
+        if (mapper.updateProjectStatus(project.id(), expectedStatus, project.status(),
+                project.version() - 1, project.version(), updatedAt) != 1) {
+            throw new IllegalStateException("Project lifecycle changed concurrently; reload and retry");
+        }
+    }
+
+    @Override public void setTargetLocaleStatus(long projectId, String locale, String expectedStatus,
+                                                String status, Instant updatedAt) {
+        if (mapper.setTargetLocaleStatus(projectId, locale, expectedStatus, status) != 1) {
+            throw new IllegalStateException("Target locale lifecycle changed concurrently; reload and retry");
+        }
+    }
+
     @Override
     public List<ProjectMember> members(long projectId) {
         return mapper.findMembers(projectId).stream()
                 .map(row -> new ProjectMember(row.getUserId(), MemberRole.valueOf(row.getRole()),
                         row.getCreatedAt()))
                 .toList();
+    }
+
+    @Override public List<String> archivedTargetLocales(long projectId) {
+        return mapper.findArchivedTargetLocales(projectId);
+    }
+
+    @Override public List<String> findTargetLocales(long projectId) {
+        return mapper.findTargetLocales(projectId);
     }
 
     @Override

@@ -16,15 +16,21 @@ import lombok.Setter;
 @Mapper
 public interface WorkspaceMapper extends BaseMapper<WorkspaceMapper.ProjectRow> {
 
-    @Select("SELECT locale FROM project_languages WHERE project_id = #{projectId} ORDER BY locale")
+    @Select("SELECT locale FROM project_languages WHERE project_id = #{projectId} AND status = 'ACTIVE' ORDER BY locale")
     List<String> findTargetLocales(@Param("projectId") long projectId);
+
+    @Select("SELECT locale FROM project_languages WHERE project_id = #{projectId} AND status = 'ARCHIVED' ORDER BY locale")
+    List<String> findArchivedTargetLocales(@Param("projectId") long projectId);
+
+    @Select("SELECT COUNT(*) FROM project_languages WHERE project_id = #{projectId} AND status = 'ACTIVE'")
+    long countActiveTargetLocales(@Param("projectId") long projectId);
 
     @Select("""
             SELECT p.id, p.owner_id, p.name, p.description, p.source_locale, p.version, p.status,
                    p.created_at, p.updated_at
               FROM projects p
               JOIN project_members m ON m.project_id = p.id
-             WHERE m.user_id = #{userId} AND p.status = 'ACTIVE'
+             WHERE m.user_id = #{userId} AND p.status IN ('ACTIVE', 'ARCHIVED')
              ORDER BY p.updated_at DESC, p.id DESC
             """)
     List<ProjectRow> findActiveForMember(@Param("userId") long userId);
@@ -40,9 +46,9 @@ public interface WorkspaceMapper extends BaseMapper<WorkspaceMapper.ProjectRow> 
 
     @Select("""
             <script>
-            SELECT COUNT(*) FROM project_members
-             WHERE project_id = #{projectId} AND user_id = #{userId}
-               AND role IN
+            SELECT COUNT(*) FROM project_members m JOIN projects p ON p.id = m.project_id
+             WHERE m.project_id = #{projectId} AND m.user_id = #{userId} AND p.status = 'ACTIVE'
+               AND m.role IN
                <foreach collection='roles' item='role' open='(' separator=',' close=')'>
                    #{role}
                </foreach>
@@ -52,6 +58,32 @@ public interface WorkspaceMapper extends BaseMapper<WorkspaceMapper.ProjectRow> 
                           @Param("userId") long userId,
                           @Param("roles") java.util.List<String> roles);
 
+    @Select("""
+            <script>
+            SELECT COUNT(*) FROM project_members m
+              JOIN projects p ON p.id = m.project_id
+             WHERE m.project_id = #{projectId} AND m.user_id = #{userId}
+               AND p.status = #{status} AND m.role IN
+               <foreach collection='roles' item='role' open='(' separator=',' close=')'>#{role}</foreach>
+            </script>
+            """)
+    long countMemberRolesByStatus(@Param("projectId") long projectId,
+                                  @Param("userId") long userId,
+                                  @Param("status") String status,
+                                  @Param("roles") java.util.List<String> roles);
+
+    @Select("""
+            <script>
+            SELECT COUNT(*) FROM project_members m JOIN projects p ON p.id = m.project_id
+             WHERE m.project_id = #{projectId} AND m.user_id = #{userId}
+               AND p.status IN ('ACTIVE', 'ARCHIVED') AND m.role IN
+               <foreach collection='roles' item='role' open='(' separator=',' close=')'>#{role}</foreach>
+            </script>
+            """)
+    long countAnyProjectMemberRoles(@Param("projectId") long projectId,
+                                    @Param("userId") long userId,
+                                    @Param("roles") java.util.List<String> roles);
+
     @Insert("""
             INSERT INTO project_members (project_id, user_id, role, created_at)
             VALUES (#{projectId}, #{userId}, #{role}, #{createdAt})
@@ -60,6 +92,31 @@ public interface WorkspaceMapper extends BaseMapper<WorkspaceMapper.ProjectRow> 
                   @Param("userId") long userId,
                   @Param("role") String role,
                   @Param("createdAt") Instant createdAt);
+
+    @Update("UPDATE project_members SET role = #{role} WHERE project_id = #{projectId} AND user_id = #{userId}")
+    int changeMemberRole(@Param("projectId") long projectId, @Param("userId") long userId,
+                         @Param("role") String role);
+
+    @org.apache.ibatis.annotations.Delete("DELETE FROM project_members WHERE project_id = #{projectId} AND user_id = #{userId}")
+    int removeMember(@Param("projectId") long projectId, @Param("userId") long userId);
+
+    @Update("UPDATE projects SET owner_id = #{newOwnerId}, version = #{newVersion}, updated_at = #{updatedAt} WHERE id = #{projectId} AND owner_id = #{currentOwnerId} AND status = 'ACTIVE' AND version = #{expectedVersion}")
+    int transferProjectOwner(@Param("projectId") long projectId,
+                             @Param("currentOwnerId") long currentOwnerId,
+                             @Param("newOwnerId") long newOwnerId,
+                             @Param("expectedVersion") long expectedVersion,
+                             @Param("newVersion") long newVersion,
+                             @Param("updatedAt") Instant updatedAt);
+
+    @Update("UPDATE projects SET status = #{status}, version = #{version}, updated_at = #{updatedAt} WHERE id = #{projectId} AND status = #{expectedStatus} AND version = #{expectedVersion}")
+    int updateProjectStatus(@Param("projectId") long projectId, @Param("expectedStatus") String expectedStatus,
+                            @Param("status") String status, @Param("expectedVersion") long expectedVersion,
+                            @Param("version") long version, @Param("updatedAt") Instant updatedAt);
+
+    @Update("UPDATE project_languages SET status = #{status} WHERE project_id = #{projectId} AND locale = #{locale} AND status = #{expectedStatus}")
+    int setTargetLocaleStatus(@Param("projectId") long projectId, @Param("locale") String locale,
+                              @Param("expectedStatus") String expectedStatus,
+                              @Param("status") String status);
 
     @Select("""
             SELECT user_id, role, created_at

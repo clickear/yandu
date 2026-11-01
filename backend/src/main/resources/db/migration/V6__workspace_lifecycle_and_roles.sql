@@ -1,0 +1,3 @@
+ALTER TABLE project_languages
+    ADD COLUMN status VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'ACTIVE'
+        COMMENT '目标语言状态：ACTIVE 或 ARCHIVED';
