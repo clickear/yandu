@@ -45,7 +45,7 @@ test('create a project, add language and entry, review a translation and persist
   await page.getByLabel('键名', { exact: true }).fill('app.welcome')
   await page.getByLabel('源文案').fill('欢迎来到言渡')
   await page.getByRole('dialog').getByRole('button', { name: '添加文案' }).click()
-  await page.getByRole('button', { name: '编辑 app.welcome', exact: true }).click()
+  await page.getByRole('button', { name: '编辑译文 app.welcome', exact: true }).click()
   await page.getByRole('textbox', { name: '译文 · English', exact: true }).fill('Welcome to YANDU')
   await page.getByLabel('标记为已审核').check()
   await page.getByRole('button', { name: '保存译文' }).click()
@@ -68,7 +68,7 @@ test('editing a reviewed translation resets the review and warns before discardi
   page,
 }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: '编辑 home.hero.title', exact: true }).click()
+  await page.getByRole('button', { name: '编辑译文 home.hero.title', exact: true }).click()
   await expect(page.getByLabel('标记为已审核')).toBeChecked()
   await page.getByRole('textbox', { name: '译文 · English', exact: true }).fill('A new translation')
   await expect(page.getByLabel('标记为已审核')).not.toBeChecked()
@@ -76,7 +76,7 @@ test('editing a reviewed translation resets the review and warns before discardi
   await page.getByRole('button', { name: '关闭弹窗' }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await page.getByRole('button', { name: '保存译文' }).click()
-  await expect(page.locator('tbody tr').first()).toContainText('待审核')
+  await expect(page.locator('tbody tr').first()).toContainText('草稿')
 })
 
 test('imports, updates, and exports real JSON files', async ({ page }) => {
@@ -93,7 +93,7 @@ test('imports, updates, and exports real JSON files', async ({ page }) => {
   expect(data['common.search']).toBe('')
   await importFile(page, '{"home.hero.title":"新的源文案"}', 'zh-CN')
   await expect(page.locator('tbody tr').first()).toContainText('新的源文案')
-  await expect(page.locator('tbody tr').first()).toContainText('待审核')
+  await expect(page.locator('tbody tr').first()).toContainText('草稿')
 })
 
 test('invalid import preserves existing data and duplicate entry shows an error', async ({
@@ -132,7 +132,7 @@ test('mobile layout contains overflow within the translation table', async ({ pa
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   )
-  await page.getByRole('button', { name: '编辑 home.hero.title', exact: true }).click()
+  await page.getByRole('button', { name: '编辑译文 home.hero.title', exact: true }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await expect(page.getByRole('textbox', { name: '译文 · English', exact: true })).toBeVisible()
 })

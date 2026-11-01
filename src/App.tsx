@@ -347,7 +347,7 @@ function TranslationEditor({
               />
               标记为已审核
             </label>
-            <p className="form-hint">修改译文后会自动回到待审核状态。</p>
+            <p className="form-hint">修改译文后会清除原有审核标记。</p>
           </>
         )}
         <div className="modal-actions">
@@ -2064,7 +2064,7 @@ export default function App() {
             <p className="form-hint">
               格式示例：<code>{'{"home.title": "Welcome"}'}</code>
               <br />
-              同名键会更新所选语言，其他键与语言保留。目标语言中新键的源文案留空；更改源文案会将已有译文转为待审核。请先导出备份。
+              同名键会更新所选语言，其他键与语言保留。目标语言中新键的源文案留空；更改源文案会清除已有译文的审核标记。请先导出备份。
             </p>
             {backendEnabled && importPreview && (
               <div className="import-preview" aria-live="polite">
