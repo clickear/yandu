@@ -50,6 +50,8 @@ public class PublicReleaseWebSocketHandler extends TextWebSocketHandler {
             } catch (ReleaseApplicationService.ReleaseNotFoundException noReleaseYet) {
                 // The subscription remains open and will receive the first published release.
             }
+        } catch (IOException transportFailure) {
+            closeSession(session);
         } catch (RuntimeException invalid) {
             send(session, java.util.Map.of("type", "error", "message", "Invalid subscription request"));
         }
@@ -65,7 +67,7 @@ public class PublicReleaseWebSocketHandler extends TextWebSocketHandler {
     public void sendHeartbeats() {
         sessions.values().forEach(session -> {
             try { send(session, java.util.Map.of("type", "heartbeat")); }
-            catch (IOException failure) { closeRegistration(session); }
+            catch (IOException failure) { closeSession(session); }
         });
     }
 
@@ -73,7 +75,17 @@ public class PublicReleaseWebSocketHandler extends TextWebSocketHandler {
         try {
             send(session, ReleaseSyncProtocol.changed(event));
         } catch (IOException | RuntimeException failure) {
-            closeRegistration(session);
+            closeSession(session);
+        }
+    }
+
+    private void closeSession(WebSocketSession session) {
+        sessions.remove(session.getId(), session);
+        closeRegistration(session);
+        try {
+            if (session.isOpen()) session.close(CloseStatus.SERVER_ERROR);
+        } catch (IOException ignored) {
+            // The transport has already failed; removing its listener is the important cleanup.
         }
     }
 

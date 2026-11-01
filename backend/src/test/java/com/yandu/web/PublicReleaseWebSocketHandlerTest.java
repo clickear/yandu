@@ -5,11 +5,13 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.times;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doThrow;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yandu.release.ReleaseApplicationService;
 import com.yandu.release.ReleasePublishedEvent;
 import java.time.Instant;
+import java.io.IOException;
 import java.util.HashMap;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.socket.TextMessage;
@@ -41,5 +43,23 @@ class PublicReleaseWebSocketHandlerTest {
                 ((TextMessage) message).getPayload().contains("checksum-2")
                         || ((TextMessage) message).getPayload().contains("checksum-1")));
         handler.afterConnectionClosed(session, org.springframework.web.socket.CloseStatus.NORMAL);
+    }
+
+    @Test
+    void failedHeartbeatClosesAndRemovesTheBrokenSession() throws Exception {
+        var session = mock(WebSocketSession.class);
+        given(session.getId()).willReturn("broken-consumer");
+        given(session.isOpen()).willReturn(true);
+        given(session.getAttributes()).willReturn(new HashMap<>());
+        doThrow(new IOException("socket closed")).when(session).sendMessage(org.mockito.ArgumentMatchers.any());
+        var handler = new PublicReleaseWebSocketHandler(new ObjectMapper(), new ReleaseChangeHub(),
+                mock(ReleaseApplicationService.class));
+
+        handler.afterConnectionEstablished(session);
+        handler.sendHeartbeats();
+        handler.sendHeartbeats();
+
+        verify(session).close(org.springframework.web.socket.CloseStatus.SERVER_ERROR);
+        verify(session, times(1)).sendMessage(org.mockito.ArgumentMatchers.any());
     }
 }
