@@ -323,7 +323,9 @@ class MySql8MigrationsTest {
 
         given(machineTranslationProvider.isConfigured()).willReturn(true);
         given(machineTranslationProvider.translate("欢迎", "zh-CN", "en-US")).willReturn("Welcome");
-        given(machineTranslationProvider.translate("请登录", "zh-CN", "en-US")).willReturn("Log in");
+        given(machineTranslationProvider.translate("请登录", "zh-CN", "en-US"))
+                .willThrow(new MachineTranslationProvider.ProviderFailureException("临时 provider 故障"))
+                .willReturn("Log in");
         // Deliberately omit the placeholder to exercise the quality gate after machine backfill.
         given(machineTranslationProvider.translate("你好，{name}", "zh-CN", "en-US")).willReturn("Hello");
         String machineJobsEndpoint = "http://localhost:" + port + "/api/v1/projects/" + projectId
@@ -338,6 +340,22 @@ class MySql8MigrationsTest {
         String machineJobId = machineCreated.getBody().path("id").asText();
         assertEquals(machineJobId, machineReplay.getBody().path("id").asText(),
                 "repeating the same machine translation request must reuse its job");
+        machineTranslationJobs.dispatchQueuedItems();
+        JsonNode partiallyFailed = awaitMachineTranslationStatus(
+                machineJobsEndpoint + "/" + machineJobId, headers, "PARTIAL");
+        assertEquals(2, partiallyFailed.path("completedCount").asInt());
+        assertEquals(1, partiallyFailed.path("failedCount").asInt());
+        ResponseEntity<JsonNode> failedItems = http.exchange(machineJobsEndpoint + "/" + machineJobId
+                        + "/items?page=1&pageSize=50", HttpMethod.GET,
+                new HttpEntity<>(headers), JsonNode.class);
+        assertTrue(java.util.stream.StreamSupport.stream(
+                        failedItems.getBody().path("items").spliterator(), false)
+                .anyMatch(item -> "FAILED".equals(item.path("status").asText())
+                        && item.path("error").asText().contains("临时 provider 故障")));
+        ResponseEntity<JsonNode> retriedMachineJob = http.postForEntity(
+                machineJobsEndpoint + "/" + machineJobId + "/retry",
+                new HttpEntity<>(headers), JsonNode.class);
+        assertEquals(HttpStatus.ACCEPTED, retriedMachineJob.getStatusCode());
         machineTranslationJobs.dispatchQueuedItems();
         JsonNode machineCompleted = awaitMachineTranslationStatus(
                 machineJobsEndpoint + "/" + machineJobId, headers, "COMPLETED");
