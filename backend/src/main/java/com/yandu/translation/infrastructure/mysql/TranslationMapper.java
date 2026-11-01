@@ -135,6 +135,11 @@ public interface TranslationMapper extends BaseMapper<TranslationMapper.Translat
                              @Param("updatedBy") long updatedBy,
                              @Param("updatedAt") Instant updatedAt);
 
+    @Select("SELECT version FROM translations WHERE id = #{id} AND project_id = #{projectId} "
+            + "AND entry_id = #{entryId} AND target_locale = #{locale} FOR UPDATE")
+    Long findVersionForUpdate(@Param("id") long id, @Param("projectId") long projectId,
+                              @Param("entryId") long entryId, @Param("locale") String locale);
+
     @Insert("""
             INSERT INTO translation_revisions
                 (id, project_id, translation_id, entry_id, target_locale, translation_version,

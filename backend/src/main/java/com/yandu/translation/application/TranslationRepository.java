@@ -20,6 +20,20 @@ public interface TranslationRepository {
 
     void update(Translation translation, long expectedVersion, Instant occurredAt);
 
+    final class VersionConflictException extends RuntimeException {
+        private final long expectedVersion;
+        private final long actualVersion;
+
+        public VersionConflictException(long expectedVersion, long actualVersion) {
+            super("Expected translation version " + expectedVersion + " but found " + actualVersion);
+            this.expectedVersion = expectedVersion;
+            this.actualVersion = actualVersion;
+        }
+
+        public long expectedVersion() { return expectedVersion; }
+        public long actualVersion() { return actualVersion; }
+    }
+
     void appendRevision(Translation translation, long actorId, Instant occurredAt);
 
     void recordDecision(Translation translation, long decidedVersion, Translation.Decision decision,

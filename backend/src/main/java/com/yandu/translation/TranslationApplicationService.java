@@ -71,7 +71,7 @@ public class TranslationApplicationService {
         if (changed) {
             var now = clock.instant();
             if (existing.isPresent()) {
-                translations.update(translation, expectedVersion, now);
+                update(translation, expectedVersion, now);
             } else {
                 translations.insert(translation, now);
             }
@@ -113,7 +113,7 @@ public class TranslationApplicationService {
             }
             try {
                 translations.update(translation, expectedVersion, clock.instant());
-            } catch (IllegalStateException conflict) {
+            } catch (TranslationRepository.VersionConflictException conflict) {
                 return MachineDraftResult.TRANSLATION_CHANGED;
             }
             var now = clock.instant();
@@ -226,7 +226,7 @@ public class TranslationApplicationService {
                     conflict.expectedVersion(), conflict.actualVersion());
         }
         var now = clock.instant();
-        translations.update(translation, expected, now);
+        update(translation, expected, now);
         audit.record(command.projectId(), command.actorId(), "TRANSLATION_SUBMITTED",
                 "TRANSLATION", translation.id(), java.util.Map.of("entryId", command.entryId(),
                         "locale", translation.locale(), "version", translation.version()));
@@ -304,7 +304,7 @@ public class TranslationApplicationService {
                     conflict.expectedVersion(), conflict.actualVersion());
         }
         var now = clock.instant();
-        translations.update(translation, expected, now);
+        update(translation, expected, now);
         translations.recordDecision(translation, command.expectedVersion(),
                 Translation.Decision.valueOf(command.decision().name()),
                 command.reviewerId(), command.reason(), now);
@@ -326,6 +326,15 @@ public class TranslationApplicationService {
     private Translation find(long projectId, long entryId, String locale) {
         return translations.find(projectId, entryId, locale)
                 .orElseThrow(() -> new TranslationNotFoundException(entryId, locale));
+    }
+
+    private void update(Translation translation, long expectedVersion, java.time.Instant occurredAt) {
+        try {
+            translations.update(translation, expectedVersion, occurredAt);
+        } catch (TranslationRepository.VersionConflictException conflict) {
+            throw new TranslationVersionConflictException(
+                    conflict.expectedVersion(), conflict.actualVersion());
+        }
     }
 
     private void requireTargetLocale(long actorId, long projectId, String locale) {

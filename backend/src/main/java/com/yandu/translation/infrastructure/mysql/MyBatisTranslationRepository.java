@@ -60,7 +60,10 @@ public class MyBatisTranslationRepository implements TranslationRepository {
                 translation.basedOnSourceRevision(), translation.value(), translation.status().name(),
                 translation.translatedBy(), translation.updatedBy(), occurredAt);
         if (updated != 1) {
-            throw new IllegalStateException("Translation changed concurrently; reload and retry");
+            var actualVersion = mapper.findVersionForUpdate(translation.id(), translation.projectId(),
+                    translation.entryId(), translation.locale());
+            throw new TranslationRepository.VersionConflictException(expectedVersion,
+                    actualVersion == null ? 0 : actualVersion);
         }
     }
 

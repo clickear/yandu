@@ -5,6 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 
 import com.yandu.catalog.CatalogEntryApplicationService;
 import com.yandu.audit.AuditLog;
@@ -19,6 +22,9 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 class TranslationTest {
 
@@ -47,6 +53,21 @@ class TranslationTest {
 
         assertThrows(IllegalStateException.class, () -> job.reconcile(
                 new MachineTranslationJob.ItemCounts(0, 0, 1, 0, 0, null)));
+    }
+
+    @Test
+    void concurrentDatabaseWriteReturnsRecoverableConflictWithLatestVersion() {
+        given(catalog.currentSourceRevision(41L, 10L, 20L)).willReturn(3L);
+        doThrow(new TranslationRepository.VersionConflictException(1, 2))
+                .when(repository).update(any(Translation.class), eq(1L), any(java.time.Instant.class));
+
+        var conflict = assertThrows(TranslationApplicationService.TranslationVersionConflictException.class,
+                () -> service.save(new TranslationApplicationService.SaveTranslation(
+                        41L, 10L, 20L, "en-US", 1, 3, "Welcome")));
+
+        assertEquals(1L, conflict.expectedVersion());
+        assertEquals(2L, conflict.actualVersion());
+        verify(repository, never()).appendRevision(any(), anyLong(), any(java.time.Instant.class));
     }
 
     @BeforeEach
