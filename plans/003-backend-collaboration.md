@@ -73,11 +73,11 @@
 
 - [x] 实现译文保存、自动复核失效、审核状态机和版本冲突响应；MySQL 回填冲突与审核发布路径已有集成证据。
 - [ ] 完成 B05 跨成员权限矩阵、双用户并发编辑与 UI 冲突恢复验收。MySQL 8.0.46 GitHub Actions run `41290947229` 现已通过跨成员 API 闭环：Reviewer 退回含占位符规则的译文后，译员修订并重提，Reviewer 再批准；验证了版本递增和退回意见读取。双用户并发编辑及 UI 冲突恢复仍待验收。机器翻译多实例闭环另按 B13 实施。
-- [ ] 完成机器翻译 B13 的多实例/更高并发验收，并使用部署方真实配置的大模型或第三方 provider 验证 API→worker→草稿回填；本地 MySQL 8.0.46 + 协议 stub 的幂等、人工译文保护、源版本保护和回填链路已通过，LibreTranslate 和 OpenAI-compatible 协议适配器均有本地 HTTP stub 检查；无真实 provider 凭证时不标记外部调用已验证。
+- [ ] 完成机器翻译 B13 的多实例/更高并发验收，并使用部署方真实配置的大模型或第三方 provider 验证 API→worker→草稿回填；MySQL 8.0.46 run `41291873823` 现从 HTTP API 创建幂等机器翻译任务、由 provider-port stub 返回结果并驱动持久化 worker 回填，验证任务/词条状态和草稿版本，随后走过质量门禁、人工审核、发布；目标语言 JSON 导入另在 `fr-FR` 流程验证。LibreTranslate 和 OpenAI-compatible 适配器均有本地 HTTP stub 协议测试；本次 MySQL 任务测试替换了 provider port，未真实调用 HTTP adapter 或外部供应商。无真实 provider 凭证时不标记外部调用已验证。
 - [x] 实现质量规则、术语和翻译记忆建议、异步导入任务。
 - [ ] 完成 B06–B07 真实 MySQL API/UI 质量定位及 JSON 预览、幂等与失败重试验收。源语言与目标语言导入的 API 预览/冲突/回填及失败重试已由 MySQL 8.0.46 GitHub Actions run `41289563436` 验证。质量门禁路径也由 MySQL 8.0.46 GitHub Actions run `41289899883` 验证：目标译文缺少 `{name}` 时送审返回 422，修正后按新译文版本再次送审成功。实际浏览器 API 模式验收仍待完成。
 - [x] 实现质量门禁、不可变发布快照、JSON/Java Properties 导出、历史与回滚。
-- [ ] 完成 B08–B10 HTTP/UI 发布权限、审计、消费端格式 fixtures 和完整历史回溯验收；MySQL 8.0.46 集成现覆盖受保护的 HTTP 发布任务创建/幂等重放/状态查询、worker 完成和通知链路，GitHub Actions run `41288322911` 通过。项目操作记录面板现支持分页查看操作者、资源、时间和安全元数据；MySQL 8.0.46 集成 run `41290244331` 验证导入及译文送审审计事件存在且不含源文/译文正文。Run `41291488010` 从 API 创建项目、目标语言和命名空间，串联源/目标 JSON 导入、占位符质量阻断、译员修订、Reviewer 退回/批准与发布任务，最后从受保护下载 API 断言 JSON 内容。剩余发布权限矩阵、完整浏览器 API 模式和历史回溯验收仍待完成。
+- [ ] 完成 B08–B10 HTTP/UI 发布权限、审计、消费端格式 fixtures 和完整历史回溯验收；MySQL 8.0.46 集成现覆盖受保护的 HTTP 发布任务创建/幂等重放/状态查询、worker 完成和通知链路，GitHub Actions run `41288322911` 通过。项目操作记录面板现支持分页查看操作者、资源、时间和安全元数据；MySQL 8.0.46 集成 run `41290244331` 验证导入及译文送审审计事件存在且不含源文/译文正文。Run `41291873823` 从 API 创建项目、目标语言和命名空间，经源文导入、机器翻译任务/回填、人工审核、第二目标语言导入至发布下载，断言快照 JSON 内容。剩余发布权限矩阵、完整浏览器 API 模式和历史回溯验收仍待完成。
 - [x] 实现 B14 发布消费端接口与独立 Spring Boot Starter：公开拉取最新快照、SHA-256 校验、原子内存替换及失败保留最后有效快照；真实 MySQL 公共 API 快照读取已由 CI 集成验证，Starter 原子替换及格式解析由模块测试验证。
 - [x] 实现 B15 可配置同步传输：普通 HTTP 轮询、Netty TCP 长连接与 WebSocket；共享的传输契约、Netty 和 WebSocket 实现均为独立 Maven 模块。后端依 Maven profile 选择性引入服务端传输，消费者按 mode 加入对应客户端模块；WebSocket 消费者不引入 Netty。实时通知只含版本元数据，消费端重连后按当前校验和恢复；推送失败会清理失效会话及订阅。JDK 21 下 backend 与同步模块 reactor 测试通过。
 - [x] 在 MySQL 8.0 环境验证发布 API→持久化任务→worker→MyBatis 发布事务→Netty/WebSocket 通知→消费端 HTTP 拉取及 SHA-256 校验。受保护的 HTTP 入口、幂等重放和状态查询，以及完整同步链路由 MySQL 8.0.46 GitHub Actions run `41288322911` 验证通过。完整浏览器 UI/API 组合验收仍待完成。
