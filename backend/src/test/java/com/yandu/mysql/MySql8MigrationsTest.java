@@ -12,6 +12,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yandu.imports.infrastructure.mysql.ImportMapper;
 import com.yandu.imports.ImportApplicationService;
 import com.yandu.release.ReleaseApplicationService;
+import com.yandu.translation.MachineTranslationApplicationService;
+import com.yandu.translation.contract.MachineTranslationProvider;
 import com.yandu.translation.infrastructure.mysql.MachineTranslationMapper;
 import com.yandu.translation.infrastructure.mysql.TranslationMapper;
 import com.yandu.workspace.infrastructure.mysql.MyBatisProjectAccessPolicy;
@@ -50,6 +52,7 @@ import java.util.concurrent.TimeUnit;
         "spring.security.oauth2.resourceserver.jwt.issuer-uri=https://issuer.example.test",
         "spring.security.oauth2.resourceserver.jwt.audiences=yandu-api",
         "yandu.import.poll-ms=86400000",
+        "yandu.machine-translation.poll-ms=86400000",
         "yandu.sync.netty.enabled=true",
         "yandu.sync.netty.port=19091",
         "yandu.sync.websocket.enabled=true"
@@ -67,7 +70,9 @@ class MySql8MigrationsTest {
     @Autowired private ObjectMapper json;
     @Autowired private ReleaseApplicationService releases;
     @Autowired private ImportApplicationService importJobs;
+    @Autowired private MachineTranslationApplicationService machineTranslationJobs;
     @MockitoBean private JwtDecoder jwtDecoder;
+    @MockitoBean private MachineTranslationProvider machineTranslationProvider;
     @LocalServerPort private int port;
 
     @Test
@@ -316,27 +321,37 @@ class MySql8MigrationsTest {
         assertEquals(HttpStatus.CONFLICT, unknownApply.getStatusCode(),
                 "target-language import must not create translations without a source entry");
 
-        headers.set("Idempotency-Key", "target-import-940");
-        String existingTargetBody = json.writeValueAsString(java.util.Map.of(
-                "namespaceId", namespaceId, "locale", "en-US", "json",
-                "{\"home.title\":\"Welcome\",\"home.subtitle\":\"Log in\","
-                        + "\"home.greeting\":\"Hello\"}"));
-        ResponseEntity<JsonNode> targetPreview = http.postForEntity(previewEndpoint,
-                new HttpEntity<>(existingTargetBody, headers), JsonNode.class);
-        assertEquals(HttpStatus.OK, targetPreview.getStatusCode());
-        assertEquals(0, targetPreview.getBody().path("preview").path("conflicts").asInt());
-        assertEquals(3, targetPreview.getBody().path("preview").path("added").asInt());
-        String targetJobId = targetPreview.getBody().path("id").asText();
-        String targetJobEndpoint = "http://localhost:" + port + "/api/v1/projects/" + projectId
-                + "/imports/" + targetJobId;
-        String targetApplyBody = json.writeValueAsString(java.util.Map.of("previewHash",
-                targetPreview.getBody().path("previewHash").asText()));
-        ResponseEntity<JsonNode> targetQueued = http.postForEntity(targetJobEndpoint + "/apply",
-                new HttpEntity<>(targetApplyBody, headers), JsonNode.class);
-        assertEquals(HttpStatus.ACCEPTED, targetQueued.getStatusCode());
-        importJobs.dispatchQueuedJobs();
-        assertEquals("COMPLETED", awaitImportStatus(targetJobEndpoint, headers, "COMPLETED")
-                .path("status").asText());
+        given(machineTranslationProvider.isConfigured()).willReturn(true);
+        given(machineTranslationProvider.translate("欢迎", "zh-CN", "en-US")).willReturn("Welcome");
+        given(machineTranslationProvider.translate("请登录", "zh-CN", "en-US")).willReturn("Log in");
+        // Deliberately omit the placeholder to exercise the quality gate after machine backfill.
+        given(machineTranslationProvider.translate("你好，{name}", "zh-CN", "en-US")).willReturn("Hello");
+        String machineJobsEndpoint = "http://localhost:" + port + "/api/v1/projects/" + projectId
+                + "/machine-translation-jobs";
+        headers.set("Idempotency-Key", "machine-translation-e2e-940");
+        String machineRequest = "{\"locale\":\"en-US\"}";
+        ResponseEntity<JsonNode> machineCreated = http.postForEntity(machineJobsEndpoint,
+                new HttpEntity<>(machineRequest, headers), JsonNode.class);
+        ResponseEntity<JsonNode> machineReplay = http.postForEntity(machineJobsEndpoint,
+                new HttpEntity<>(machineRequest, headers), JsonNode.class);
+        assertEquals(HttpStatus.ACCEPTED, machineCreated.getStatusCode());
+        String machineJobId = machineCreated.getBody().path("id").asText();
+        assertEquals(machineJobId, machineReplay.getBody().path("id").asText(),
+                "repeating the same machine translation request must reuse its job");
+        machineTranslationJobs.dispatchQueuedItems();
+        JsonNode machineCompleted = awaitMachineTranslationStatus(
+                machineJobsEndpoint + "/" + machineJobId, headers, "COMPLETED");
+        assertEquals(3, machineCompleted.path("totalCount").asInt());
+        assertEquals(3, machineCompleted.path("completedCount").asInt());
+        assertEquals(0, machineCompleted.path("failedCount").asInt());
+        ResponseEntity<JsonNode> machineItems = http.exchange(machineJobsEndpoint + "/" + machineJobId
+                        + "/items?page=1&pageSize=50", HttpMethod.GET,
+                new HttpEntity<>(headers), JsonNode.class);
+        assertEquals(HttpStatus.OK, machineItems.getStatusCode());
+        assertEquals(3, machineItems.getBody().path("total").asInt());
+        assertTrue(java.util.stream.StreamSupport.stream(
+                        machineItems.getBody().path("items").spliterator(), false)
+                .allMatch(item -> "COMPLETED".equals(item.path("status").asText())));
 
         try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement("""
                 SELECT t.value, t.status, t.based_on_source_revision, t.version
@@ -472,6 +487,39 @@ class MySql8MigrationsTest {
         assertEquals("Log in", releasedContent.path("home.subtitle").asText());
         assertEquals("Hello there, {name}", releasedContent.path("home.greeting").asText());
 
+        headers.set("Idempotency-Key", "target-import-fr-940");
+        String frenchTargetBody = json.writeValueAsString(java.util.Map.of(
+                "namespaceId", namespaceId, "locale", "fr-FR", "json", "{\"home.title\":\"Bienvenue\"}"));
+        ResponseEntity<JsonNode> frenchPreview = http.postForEntity(previewEndpoint,
+                new HttpEntity<>(frenchTargetBody, headers), JsonNode.class);
+        assertEquals(HttpStatus.OK, frenchPreview.getStatusCode());
+        assertEquals(0, frenchPreview.getBody().path("preview").path("conflicts").asInt());
+        assertEquals(1, frenchPreview.getBody().path("preview").path("added").asInt());
+        String frenchJobEndpoint = "http://localhost:" + port + "/api/v1/projects/" + projectId
+                + "/imports/" + frenchPreview.getBody().path("id").asText();
+        String frenchApplyBody = json.writeValueAsString(java.util.Map.of("previewHash",
+                frenchPreview.getBody().path("previewHash").asText()));
+        ResponseEntity<JsonNode> frenchQueued = http.postForEntity(frenchJobEndpoint + "/apply",
+                new HttpEntity<>(frenchApplyBody, headers), JsonNode.class);
+        assertEquals(HttpStatus.ACCEPTED, frenchQueued.getStatusCode());
+        importJobs.dispatchQueuedJobs();
+        assertEquals("COMPLETED", awaitImportStatus(frenchJobEndpoint, headers, "COMPLETED")
+                .path("status").asText());
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement("""
+                SELECT t.value, t.status, t.based_on_source_revision
+                  FROM translations t
+                  JOIN catalog_entries e ON e.project_id = t.project_id AND e.id = t.entry_id
+                 WHERE t.project_id = ? AND e.entry_key = 'home.title' AND t.target_locale = 'fr-FR'
+                """)) {
+            statement.setLong(1, projectId);
+            try (var rows = statement.executeQuery()) {
+                assertTrue(rows.next());
+                assertEquals("Bienvenue", rows.getString("value"));
+                assertEquals("DRAFT", rows.getString("status"));
+                assertEquals(1, rows.getLong("based_on_source_revision"));
+            }
+        }
+
         ResponseEntity<JsonNode> audit = http.exchange("http://localhost:" + port + "/api/v1/projects/"
                         + projectId + "/audit-log?page=1&pageSize=50", HttpMethod.GET,
                 new HttpEntity<>(headers), JsonNode.class);
@@ -503,6 +551,25 @@ class MySql8MigrationsTest {
             Thread.sleep(25);
         }
         throw new AssertionError("Import job did not reach " + expectedStatus + " before the integration deadline");
+    }
+
+    private JsonNode awaitMachineTranslationStatus(String jobEndpoint, HttpHeaders headers, String expectedStatus)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+        while (System.nanoTime() < deadline) {
+            ResponseEntity<JsonNode> current = http.exchange(jobEndpoint, HttpMethod.GET,
+                    new HttpEntity<>(headers), JsonNode.class);
+            assertEquals(HttpStatus.OK, current.getStatusCode());
+            String status = current.getBody().path("status").asText();
+            if (expectedStatus.equals(status)) return current.getBody();
+            if ("FAILED".equals(status) || "PARTIAL".equals(status)) {
+                throw new AssertionError("Expected machine translation status " + expectedStatus
+                        + " but got " + current.getBody());
+            }
+            Thread.sleep(25);
+        }
+        throw new AssertionError("Machine translation job did not reach " + expectedStatus
+                + " before the integration deadline");
     }
 
     @Test
