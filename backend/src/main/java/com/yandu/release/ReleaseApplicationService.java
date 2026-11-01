@@ -22,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -46,13 +47,15 @@ public class ReleaseApplicationService {
     private final AuditLog audit;
     private final TaskExecutor executor;
     private final TransactionTemplate transactions;
+    private final ApplicationEventPublisher events;
     private final Set<Long> scheduledJobs = ConcurrentHashMap.newKeySet();
 
     public ReleaseApplicationService(ReleaseRepository releases, WorkspaceApplicationService workspace,
                                     ProjectAccessPolicy access, LongSupplier ids, Clock clock,
                                     ObjectMapper json, AuditLog audit,
                                     @Qualifier("importTaskExecutor") TaskExecutor executor,
-                                    PlatformTransactionManager transactionManager) {
+                                    PlatformTransactionManager transactionManager,
+                                    ApplicationEventPublisher events) {
         this.releases = Objects.requireNonNull(releases);
         this.workspace = Objects.requireNonNull(workspace);
         this.access = Objects.requireNonNull(access);
@@ -62,6 +65,7 @@ public class ReleaseApplicationService {
         this.audit = Objects.requireNonNull(audit);
         this.executor = Objects.requireNonNull(executor);
         this.transactions = new TransactionTemplate(Objects.requireNonNull(transactionManager));
+        this.events = Objects.requireNonNull(events);
     }
 
     @Transactional
@@ -214,6 +218,7 @@ public class ReleaseApplicationService {
         var checksum = sha256(snapshot);
         var stored = releases.create(ids.getAsLong(), command.projectId(), locale, format,
                 snapshot, manifest, null, checksum, command.actorId(), clock.instant());
+        notifyPublished(stored);
         audit.record(command.projectId(), command.actorId(), "RELEASE_PUBLISHED", "RELEASE",
                 stored.id(), java.util.Map.of("locale", locale, "format", format, "version", stored.version(),
                         "checksumSha256", checksum, "entryCount", content.size()));
@@ -236,10 +241,16 @@ public class ReleaseApplicationService {
         var stored = releases.create(ids.getAsLong(), projectId, previous.locale(), previous.format(),
                 previous.content(), previous.manifest(), previous.id(), previous.checksum(),
                 actorId, clock.instant());
+        notifyPublished(stored);
         audit.record(projectId, actorId, "RELEASE_ROLLED_BACK", "RELEASE", stored.id(),
                 java.util.Map.of("locale", stored.locale(), "version", stored.version(),
                         "rollbackOfReleaseId", previous.id(), "checksumSha256", stored.checksum()));
         return view(stored, countEntries(stored));
+    }
+
+    private void notifyPublished(ReleaseSnapshot snapshot) {
+        events.publishEvent(new ReleasePublishedEvent(snapshot.projectId(), snapshot.locale(), snapshot.format(),
+                snapshot.id(), snapshot.version(), snapshot.checksum(), snapshot.publishedAt()));
     }
 
     @Transactional(readOnly = true)

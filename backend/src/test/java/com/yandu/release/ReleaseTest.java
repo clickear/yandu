@@ -16,6 +16,11 @@ import com.yandu.workspace.WorkspaceApplicationService;
 import java.time.Clock;
 import java.time.Instant;
 import java.io.ByteArrayInputStream;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.Properties;
 import java.util.List;
@@ -28,6 +33,7 @@ class ReleaseTest {
     private ReleaseRepository repository;
     private WorkspaceApplicationService workspace;
     private ProjectAccessPolicy access;
+    private org.springframework.context.ApplicationEventPublisher eventPublisher;
     private ReleaseApplicationService service;
     private final long[] nextId = {300L};
 
@@ -36,13 +42,14 @@ class ReleaseTest {
         repository = mock(ReleaseRepository.class);
         workspace = mock(WorkspaceApplicationService.class);
         access = mock(ProjectAccessPolicy.class);
+        eventPublisher = mock(org.springframework.context.ApplicationEventPublisher.class);
         nextId[0] = 300L;
         given(workspace.getProject(41L, 10L)).willReturn(new WorkspaceApplicationService.ProjectView(
                 "10", "41", "Store", "zh-CN", Set.of("en-US"), 1, "11"));
         service = new ReleaseApplicationService(repository, workspace, access, () -> nextId[0]++,
                 Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), java.time.ZoneOffset.UTC),
                 new ObjectMapper(), mock(AuditLog.class), Runnable::run,
-                testTransactionManager());
+                testTransactionManager(), eventPublisher);
     }
 
     @Test
@@ -95,6 +102,38 @@ class ReleaseTest {
 
         verify(repository).completeJob(org.mockito.ArgumentMatchers.eq(70L),
                 org.mockito.ArgumentMatchers.eq(300L), org.mockito.ArgumentMatchers.any());
+        verify(eventPublisher).publishEvent(org.mockito.ArgumentMatchers.any(ReleasePublishedEvent.class));
+    }
+
+    @Test
+    void nettyConsumerReceivesInitialVersionAndCommittedChangeNotices() throws Exception {
+        int port;
+        try (var freePort = new ServerSocket(0)) { port = freePort.getLocalPort(); }
+        var hub = new com.yandu.web.ReleaseChangeHub();
+        var releases = mock(ReleaseApplicationService.class);
+        given(releases.latestPublished(1001L, "fr-FR", "json-flat-v1")).willReturn(
+                new ReleaseApplicationService.PublicReleaseMetadata("42", "1001", "fr-FR", "json-flat-v1",
+                        7, "checksum-1", Instant.parse("2026-10-31T00:00:00Z")));
+        var server = new com.yandu.web.netty.NettyReleaseSyncServer(new ObjectMapper(), hub, releases, port);
+        server.start();
+        try (var socket = new Socket("127.0.0.1", port)) {
+            socket.setSoTimeout(3_000);
+            var writer = new PrintWriter(socket.getOutputStream(), true, StandardCharsets.UTF_8);
+            var reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+            writer.println("""
+                    {"type":"subscribe","projectId":"1001","locale":"fr-FR","format":"json-flat-v1"}
+                    """.strip());
+            var initial = new ObjectMapper().readTree(reader.readLine());
+            assertEquals("release-changed", initial.path("type").asText());
+            assertEquals("checksum-1", initial.path("metadata").path("checksumSha256").asText());
+
+            hub.onPublished(new ReleasePublishedEvent(1001L, "fr-FR", "json-flat-v1", 43L, 8,
+                    "checksum-2", Instant.parse("2026-10-31T00:01:00Z")));
+            var changed = new ObjectMapper().readTree(reader.readLine());
+            assertEquals("checksum-2", changed.path("metadata").path("checksumSha256").asText());
+        } finally {
+            server.stop();
+        }
     }
 
     private static org.springframework.transaction.PlatformTransactionManager testTransactionManager() {

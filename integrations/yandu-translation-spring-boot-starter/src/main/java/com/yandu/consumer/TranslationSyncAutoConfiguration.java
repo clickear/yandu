@@ -7,6 +7,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.web.client.RestClient;
+import org.springframework.beans.factory.ObjectProvider;
 
 @AutoConfiguration
 @ConditionalOnProperty(prefix = "yandu.translation-sync", name = "enabled", havingValue = "true")
@@ -22,11 +23,13 @@ public class TranslationSyncAutoConfiguration {
     @Bean
     TranslationSnapshotPoller yanduTranslationSnapshotPoller(TranslationSyncProperties properties,
                                                                ObjectMapper objectMapper,
-                                                               TranslationCatalog catalog) {
+                                                               TranslationCatalog catalog,
+                                                               ObjectProvider<TranslationSyncTransport> transports) {
         if (properties.getApiBaseUrl() == null || properties.getApiBaseUrl().isBlank()) {
             throw new IllegalArgumentException("yandu.translation-sync.api-base-url is required when sync is enabled");
         }
         var client = RestClient.builder().baseUrl(properties.getApiBaseUrl()).build();
-        return new TranslationSnapshotPoller(properties, client, objectMapper, catalog);
+        return new TranslationSnapshotPoller(properties, client, objectMapper, catalog,
+                transports.orderedStream().toList());
     }
 }

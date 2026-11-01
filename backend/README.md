@@ -44,6 +44,10 @@ Machine translation supports LibreTranslate-compatible `POST /translate` and Ope
 
 The React client can use the local browser prototype or the API mode. To enable API mode, copy the repository `.env.example` values into a local `.env` file, set the API URL and public OIDC SPA client settings, register the callback URI with the identity provider, and allow the frontend origin in `YANDU_CORS_ALLOWED_ORIGINS`. API mode has no seeded sample data and requires an actual OIDC sign-in. The identity provider must issue an access token whose issuer and audience match the backend settings.
 
+## Published translation consumers
+
+Consumer reads are public and limited to already published snapshots. The HTTP snapshot API is available at `/api/v1/public/projects/{projectId}/translations/{locale}/latest` and its `/content` child. The WebSocket endpoint is `/api/v1/public/translations/ws`. Netty TCP notification is opt-in: set `YANDU_NETTY_SYNC_ENABLED=true` and optionally `YANDU_NETTY_SYNC_PORT` (default `9091`). Each long connection sends a JSON `subscribe` message with `projectId`, `locale`, `format` and optional `afterChecksum`; notifications contain metadata only, and consumers fetch and verify the HTTP snapshot. Heartbeats prompt metadata refresh so consumers recover from reconnects and updates published by another application node. These interfaces do not change OIDC protection on workspace APIs.
+
 ## Tests
 
 Run `mvn test` with a Java 21 JDK. Domain and application tests do not require a database. MySQL adapter integration tests must run against MySQL 8.0; MySQL 5.7 or H2 are not accepted as substitutes for that compatibility gate.

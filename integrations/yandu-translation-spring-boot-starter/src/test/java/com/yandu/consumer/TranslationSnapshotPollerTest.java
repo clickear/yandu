@@ -9,6 +9,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -69,6 +71,30 @@ class TranslationSnapshotPollerTest {
 
         assertThat(catalog.require("welcome")).isEqualTo("Bonjour!");
         server.verify();
+    }
+
+    @Test
+    void startsOnlyTheSelectedOptionalTransportAndClosesItOnShutdown() {
+        var properties = properties();
+        properties.setMode("netty");
+        var closed = new AtomicBoolean();
+        TranslationSyncTransport netty = new TranslationSyncTransport() {
+            @Override public String mode() { return "netty"; }
+            @Override public AutoCloseable connect(TranslationSyncProperties ignored, ObjectMapper mapper,
+                                                   java.util.function.Supplier<String> checksum,
+                                                   Runnable onChange) {
+                return () -> closed.set(true);
+            }
+        };
+        var poller = new TranslationSnapshotPoller(properties, RestClient.builder().build(),
+                new ObjectMapper(), new TranslationCatalog(), List.of(netty));
+
+        poller.start();
+
+        assertThat(poller.isRunning()).isTrue();
+        poller.stop();
+        assertThat(closed).isTrue();
+        assertThat(poller.isRunning()).isFalse();
     }
 
     private static TranslationSyncProperties properties() {

@@ -68,3 +68,9 @@ yandu:
     model: ${YANDU_MT_MODEL:}
     timeout-ms: ${YANDU_MT_TIMEOUT_MS:30000}
     poll-ms: ${YANDU_MT_POLL_MS:2000}
+  sync:
+    websocket:
+      heartbeat-ms: ${YANDU_SYNC_HEARTBEAT_MS:25000}
+    netty:
+      enabled: ${YANDU_NETTY_SYNC_ENABLED:false}
+      port: ${YANDU_NETTY_SYNC_PORT:9091}

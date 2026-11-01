@@ -8,9 +8,11 @@ import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.Properties;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.springframework.context.SmartLifecycle;
@@ -25,14 +27,24 @@ public class TranslationSnapshotPoller implements SmartLifecycle {
     private final RestClient client;
     private final ObjectMapper json;
     private final TranslationCatalog catalog;
+    private final List<TranslationSyncTransport> transports;
+    private final AtomicBoolean refreshRunning = new AtomicBoolean();
     private volatile ScheduledExecutorService scheduler;
+    private volatile AutoCloseable realtimeConnection;
 
     public TranslationSnapshotPoller(TranslationSyncProperties properties, RestClient client,
                                      ObjectMapper json, TranslationCatalog catalog) {
+        this(properties, client, json, catalog, List.of());
+    }
+
+    public TranslationSnapshotPoller(TranslationSyncProperties properties, RestClient client,
+                                     ObjectMapper json, TranslationCatalog catalog,
+                                     List<TranslationSyncTransport> transports) {
         this.properties = properties;
         this.client = client;
         this.json = json;
         this.catalog = catalog;
+        this.transports = List.copyOf(transports);
         if (properties.getProjectId() <= 0 || properties.getLocale() == null || properties.getLocale().isBlank()) {
             throw new IllegalArgumentException("YANDU project-id and locale must be configured when sync is enabled");
         }
@@ -42,6 +54,11 @@ public class TranslationSnapshotPoller implements SmartLifecycle {
         if (!"json-flat-v1".equals(properties.getFormat())
                 && !"java-properties-v1".equals(properties.getFormat())) {
             throw new IllegalArgumentException("Unsupported YANDU translation format: " + properties.getFormat());
+        }
+        if (!"polling".equalsIgnoreCase(properties.getMode())
+                && !"netty".equalsIgnoreCase(properties.getMode())
+                && !"websocket".equalsIgnoreCase(properties.getMode())) {
+            throw new IllegalArgumentException("YANDU translation sync mode must be polling, netty or websocket");
         }
     }
 
@@ -90,28 +107,44 @@ public class TranslationSnapshotPoller implements SmartLifecycle {
     @Override
     public synchronized void start() {
         if (!isRunning()) {
-            scheduler = Executors.newSingleThreadScheduledExecutor(task -> {
-                var thread = new Thread(task, "yandu-translation-sync");
-                thread.setDaemon(true);
-                return thread;
-            });
-            scheduler.scheduleWithFixedDelay(this::refreshQuietly, 0, properties.getRefreshIntervalMs(),
-                    TimeUnit.MILLISECONDS);
+            if ("polling".equalsIgnoreCase(properties.getMode())) {
+                scheduler = Executors.newSingleThreadScheduledExecutor(task -> {
+                    var thread = new Thread(task, "yandu-translation-sync");
+                    thread.setDaemon(true);
+                    return thread;
+                });
+                scheduler.scheduleWithFixedDelay(this::refreshQuietly, 0, properties.getRefreshIntervalMs(),
+                        TimeUnit.MILLISECONDS);
+            } else {
+                var transport = transports.stream()
+                        .filter(candidate -> properties.getMode().equalsIgnoreCase(candidate.mode()))
+                        .findFirst().orElseThrow(() -> new IllegalStateException(
+                                "Add the yandu-translation-sync-" + properties.getMode()
+                                        + " module to enable this transport"));
+                realtimeConnection = transport.connect(properties, json, catalog::version, this::refreshQuietly);
+            }
         }
     }
 
     private void refreshQuietly() {
+        if (!refreshRunning.compareAndSet(false, true)) return;
         try {
             refreshNow();
         } catch (RuntimeException exception) {
             // Keep the last verified snapshot; next poll retries automatically.
             log.warn("YANDU translation sync failed; retaining the last verified snapshot ("
                     + exception.getClass().getSimpleName() + ")");
+        } finally {
+            refreshRunning.set(false);
         }
     }
 
     @Override
     public synchronized void stop() {
+        if (realtimeConnection != null) {
+            try { realtimeConnection.close(); } catch (Exception ignored) { }
+            realtimeConnection = null;
+        }
         if (scheduler != null) {
             scheduler.shutdownNow();
             scheduler = null;
@@ -119,7 +152,9 @@ public class TranslationSnapshotPoller implements SmartLifecycle {
     }
 
     @Override
-    public boolean isRunning() { return scheduler != null && !scheduler.isShutdown(); }
+    public boolean isRunning() {
+        return (scheduler != null && !scheduler.isShutdown()) || realtimeConnection != null;
+    }
 
     @Override
     public boolean isAutoStartup() { return true; }

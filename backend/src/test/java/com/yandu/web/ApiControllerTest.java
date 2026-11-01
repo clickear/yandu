@@ -94,6 +94,12 @@ class ApiControllerTest {
     }
 
     @Test
+    void websocketHandshakePathDoesNotRequireBearerAuthentication() throws Exception {
+        mvc.perform(get("/api/v1/public/translations/ws"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void healthProbePathDoesNotRequireBearerIdentity() throws Exception {
         mvc.perform(get("/actuator/health/readiness"))
                 .andExpect(status().isNotFound());

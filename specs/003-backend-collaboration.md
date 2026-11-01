@@ -24,9 +24,9 @@ Spring Boot、Spring Modulith 与 Spring Security 的选择依据及其职责边
 
 首期范围：项目成员与角色权限（暂不引入租户/组织隔离）、项目和语言、命名空间与源词条、译文协作与审核、占位符/必填校验、术语与翻译记忆建议、JSON 导入预览和异步导入、质量门禁、不可变发布版本、JSON 与 Java Properties 导出、历史回溯、审计与运维所需的健康/任务状态接口。
 
-发布消费端通过单独的 Spring Boot Starter 定时拉取最新已发布快照；公开接口仅提供发布元数据和不可变文件，不需要身份认证。Starter 校验 SHA-256 后原子替换内存快照，拉取、校验或解析失败时继续提供上一个有效快照。该公开读取面不改变工作台 API 的 OIDC 身份认证和项目权限规则。详见 [ADR-0008](../docs/adr/0008-published-translation-consumer.md)。
+发布消费端通过单独的 Spring Boot Starter 同步最新已发布快照；公开接口仅提供发布元数据和不可变文件，不需要身份认证。Starter 校验 SHA-256 后原子替换内存快照，拉取、校验或解析失败时继续提供上一个有效快照。该公开读取面不改变工作台 API 的 OIDC 身份认证和项目权限规则。详见 [ADR-0008](../docs/adr/0008-published-translation-consumer.md)。
 
-消费端同步方式需要通过配置切换：普通 HTTP 轮询作为默认/兜底，HTTP 长轮询用于降低无变更时的请求数，SSE 用于服务端单向推送发布变更。WebSocket 本期不纳入首批传输方式，因为消费链路不需要双向消息；Netty 是底层网络运行时而非独立协议选项。
+消费端同步方式需要通过配置切换：普通 HTTP 轮询作为默认/兜底，并同时支持 Netty TCP 长连接实时通知和 WebSocket 实时通知。两种长连接只推送发布版本元数据变化，消费端收到通知后仍通过 HTTP 拉取完整不可变快照并校验 SHA-256。消费流量是单向通知，因此 WebSocket 不承载任意业务命令；Netty 模式使用独立 TCP 监听端口和 newline-delimited JSON 订阅协议。
 
 机器翻译纳入首期主流程，但不默认启用外部服务：通过配置 LibreTranslate-compatible 或 OpenAI-compatible Chat Completions HTTP provider 接入自托管/托管翻译服务、大模型 API 或兼容第三方网关。任务异步持久化、可查询/重试；结果只以草稿回填，且必须匹配创建时源版本和译文版本、当前译文仍为空，避免旧任务覆盖人工编辑。未配置 provider 时不创建假成功状态。Git 集成、截图/OCR、计费商城、微服务拆分和跨区域主动-主动部署不纳入首期。
 
@@ -55,7 +55,7 @@ Workspace 生命周期切片已补齐：项目创建默认配置一个目标语�
 
 JSON 导入任务工作台可读取项目最近 20 项任务，查看新增/更新/未变化/冲突统计与安全失败摘要；可继续确认尚未应用的预览，并重试失败任务。最近任务接口只选择状态、时间和汇总字段，不返回导入正文或差异内容。API 模式文件上限与服务端统一为 5 MiB，本地原型仍保留 1 MB 限制。MySQL 8.0 新增最近任务索引和 JSON 汇总查询，需在实例执行迁移及查询后才能算数据库验收通过。
 
-发布消费端 B14 已有匿名只读的 latest 元数据/内容 API，以及独立 `integrations/yandu-translation-spring-boot-starter` Maven artifact。当前 Starter 支持配置 JSON Flat v1 或 Java Properties v1，按间隔轮询、校验内容 SHA-256 后原子替换内存快照；失败时保留旧快照并重试。后端 68 项测试与 Starter 两种格式的快照测试通过；本次 MySQL 查询尚未在 MySQL 8.0 实例验证，Starter artifact 尚未发布到公共 Maven 仓库。B15 的可配置 HTTP 长轮询和 SSE 尚待实现。
+发布消费端 B14 已有匿名只读的 latest 元数据/内容 API，以及独立 `integrations/yandu-translation-spring-boot-starter` Maven artifact。Starter 支持 JSON Flat v1 与 Java Properties v1，下载前读取元数据、校验 SHA-256 后原子替换内存快照；失败时保留旧快照并重试。B15 的 Netty TCP 与 WebSocket 服务端通知和可配置客户端已实现；各传输客户端位于单独 Maven 模块，基础 Starter 不引入 Netty。后端包含真实 Netty socket 和 WebSocket handler 测试，消费者 Netty/WebSocket 模块均有本地协议测试。上述 API 与同步查询尚未在 MySQL 8.0 实例验证，artifact 尚未发布到公共 Maven 仓库。
 
 机器翻译通过可配置 HTTP provider 纳入主流程，支持 LibreTranslate-compatible `/translate` 及 OpenAI-compatible Chat Completions（可接大模型 API 或第三方兼容网关）。设置 `YANDU_MT_PROVIDER`、`YANDU_MT_BASE_URL`，大模型还需 `YANDU_MT_MODEL`；必要时设置服务端 `YANDU_MT_API_KEY`。可为当前目标语言创建幂等异步任务，最多四个 worker 并发执行，按词条展示进度/失败并重试；空 provider 结果记录为失败，不创建空译文；有效结果只写入草稿，回填时锁源词条并比较源修订、译文版本和空值，版本变化或人工已译时跳过。provider 未配置时返回 503，不创建任务。MySQL 8.0.46 上 V1–V9 已执行；本地数据库端到端 API 流程验证了幂等创建、机器结果草稿回填、人工修订/审核和发布导出，协议 stub 下人工编辑与源版本竞争均安全跳过。真实外部 provider 调用、部署 IdP 和多实例并发仍未验证。
 
@@ -81,7 +81,7 @@ JSON 导入任务工作台可读取项目最近 20 项任务，查看新增/更�
 | B12 | 本地原型可通过显式迁移包导入服务端；迁移前可预览冲突，重复提交安全。 |
 | B13 | 配置机器翻译 provider 后可创建异步任务、查看进度与失败原因并重试；可从单项结果定位到当前词条/命名空间/目标语言；译文只回填为草稿，拒绝覆盖非空人工译文或源/译文版本已变化的结果；重复请求通过幂等键返回同一任务。 |
 | B14 | 消费方无需身份认证即可读取指定项目/语言最新已发布版本；独立 Spring Boot Starter 定时拉取 JSON/Properties 快照，校验 SHA-256 后原子更新；失败时保留最后有效版本。 |
-| B15 | 消费端可通过配置选择普通轮询、HTTP 长轮询或 SSE；三种方式都复用相同的不可变快照、校验和原子替换规则，断线后能够恢复同步。 |
+| B15 | 消费端可通过配置选择普通 HTTP 轮询、Netty TCP 长连接或 WebSocket；两种实时通道在发布事务提交后通知版本变化，断线重连后读取最新快照，复用相同 SHA-256 校验和原子替换规则。 |
 
 ### B12 本地项目迁移约定
 
