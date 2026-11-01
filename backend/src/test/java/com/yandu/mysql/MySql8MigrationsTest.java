@@ -294,6 +294,59 @@ class MySql8MigrationsTest {
             }
         }
         assertEquals("COMPLETED", completed.path("status").asText());
+
+        String targetLocaleBody = json.writeValueAsString(java.util.Map.of(
+                "namespaceId", namespaceId, "locale", "en-US", "json", "{\"unknown.key\":\"No source\"}"));
+        headers.set("Idempotency-Key", "unknown-target-import-940");
+        ResponseEntity<JsonNode> unknownTargetPreview = http.postForEntity(previewEndpoint,
+                new HttpEntity<>(targetLocaleBody, headers), JsonNode.class);
+        assertEquals(HttpStatus.OK, unknownTargetPreview.getStatusCode());
+        assertEquals(1, unknownTargetPreview.getBody().path("preview").path("conflicts").asInt());
+        String unknownApplyEndpoint = "http://localhost:" + port + "/api/v1/projects/" + projectId
+                + "/imports/" + unknownTargetPreview.getBody().path("id").asText() + "/apply";
+        String unknownApplyBody = json.writeValueAsString(java.util.Map.of("previewHash",
+                unknownTargetPreview.getBody().path("previewHash").asText()));
+        ResponseEntity<JsonNode> unknownApply = http.postForEntity(unknownApplyEndpoint,
+                new HttpEntity<>(unknownApplyBody, headers), JsonNode.class);
+        assertEquals(HttpStatus.CONFLICT, unknownApply.getStatusCode(),
+                "target-language import must not create translations without a source entry");
+
+        headers.set("Idempotency-Key", "target-import-940");
+        String existingTargetBody = json.writeValueAsString(java.util.Map.of(
+                "namespaceId", namespaceId, "locale", "en-US", "json", "{\"home.title\":\"Welcome\"}"));
+        ResponseEntity<JsonNode> targetPreview = http.postForEntity(previewEndpoint,
+                new HttpEntity<>(existingTargetBody, headers), JsonNode.class);
+        assertEquals(HttpStatus.OK, targetPreview.getStatusCode());
+        assertEquals(0, targetPreview.getBody().path("preview").path("conflicts").asInt());
+        assertEquals("ADD", targetPreview.getBody().path("preview").path("items").get(0).path("action").asText());
+        String targetJobId = targetPreview.getBody().path("id").asText();
+        String targetJobEndpoint = "http://localhost:" + port + "/api/v1/projects/" + projectId
+                + "/imports/" + targetJobId;
+        String targetApplyBody = json.writeValueAsString(java.util.Map.of("previewHash",
+                targetPreview.getBody().path("previewHash").asText()));
+        ResponseEntity<JsonNode> targetQueued = http.postForEntity(targetJobEndpoint + "/apply",
+                new HttpEntity<>(targetApplyBody, headers), JsonNode.class);
+        assertEquals(HttpStatus.ACCEPTED, targetQueued.getStatusCode());
+        importJobs.dispatchQueuedJobs();
+        assertEquals("COMPLETED", awaitImportStatus(targetJobEndpoint, headers, "COMPLETED")
+                .path("status").asText());
+
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement("""
+                SELECT t.value, t.status, t.based_on_source_revision, t.version
+                  FROM translations t
+                  JOIN catalog_entries e ON e.project_id = t.project_id AND e.id = t.entry_id
+                 WHERE t.project_id = ? AND e.entry_key = 'home.title' AND t.target_locale = 'en-US'
+                """)) {
+            statement.setLong(1, projectId);
+            try (var rows = statement.executeQuery()) {
+                assertTrue(rows.next());
+                assertEquals("Welcome", rows.getString("value"));
+                assertEquals("DRAFT", rows.getString("status"));
+                assertEquals(1, rows.getLong("based_on_source_revision"));
+                assertEquals(1, rows.getLong("version"));
+                assertFalse(rows.next());
+            }
+        }
     }
 
     private JsonNode awaitImportStatus(String jobEndpoint, HttpHeaders headers, String expectedStatus)
