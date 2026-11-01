@@ -414,7 +414,9 @@ class MySql8MigrationsTest {
                         + "\"reason\":\"请保留姓名占位符。\"}", reviewerHeaders), JsonNode.class);
         assertEquals(HttpStatus.OK, returned.getStatusCode());
         assertEquals("CHANGES_REQUESTED", returned.getBody().path("status").asText());
-        assertEquals("请保留姓名占位符。", returned.getBody().path("latestReviewReason").asText());
+        ResponseEntity<JsonNode> feedback = http.exchange(translationEndpoint, HttpMethod.GET,
+                new HttpEntity<>(reviewerHeaders), JsonNode.class);
+        assertEquals("请保留姓名占位符。", feedback.getBody().path("latestReviewReason").asText());
 
         String revisedBody = json.writeValueAsString(java.util.Map.of(
                 "expectedVersion", 4, "basedOnSourceRevision", 1, "value", "Hello there, {name}"));
