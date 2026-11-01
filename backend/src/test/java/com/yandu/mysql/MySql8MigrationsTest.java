@@ -177,7 +177,7 @@ class MySql8MigrationsTest {
 
     @Test
     @EnabledIfSystemProperty(named = "yandu.sync.integration", matches = "true")
-    void committedMysqlReleasePushesToNettyAndWebSocketConsumers() throws Exception {
+    void completedMysqlReleaseJobsPushToNettyAndWebSocketConsumers() throws Exception {
         long actorId = 930_000_000_000_001L;
         long projectId = 930_000_000_000_002L;
         String initialContent = "{\"welcome.title\":\"Bonjour\"}\n";
@@ -231,12 +231,16 @@ class MySql8MigrationsTest {
                     """);
         }
 
-        var firstRelease = releases.publish(new ReleaseApplicationService.PublishRelease(
-                actorId, projectId, "fr-FR", ReleaseApplicationService.JSON_FLAT));
-        String initialChecksum = firstRelease.checksumSha256();
-        assertEquals(initialContent, http.getForEntity("http://localhost:" + port
-                + "/api/v1/public/projects/" + projectId
-                + "/translations/fr-FR/latest/content", String.class).getBody());
+        var firstJob = publishJobAndAwait(actorId, projectId, "sync-initial");
+        String initialReleaseId = firstJob.releaseId();
+        String initialChecksum = latestChecksum(projectId, "fr-FR");
+        String endpoint = "http://localhost:" + port + "/api/v1/public/projects/" + projectId
+                + "/translations/fr-FR/latest";
+        ResponseEntity<JsonNode> initialMetadata = http.getForEntity(endpoint, JsonNode.class);
+        assertEquals(HttpStatus.OK, initialMetadata.getStatusCode());
+        assertEquals(initialReleaseId, initialMetadata.getBody().path("id").asText());
+        assertEquals(initialChecksum, initialMetadata.getBody().path("checksumSha256").asText());
+        assertEquals(initialContent, http.getForEntity(endpoint + "/content", String.class).getBody());
 
         try (var netty = new Socket()) {
             netty.connect(new InetSocketAddress("127.0.0.1", 19091), 3_000);
@@ -290,19 +294,16 @@ class MySql8MigrationsTest {
                     """)) {
                 assertEquals(1, insert.executeUpdate());
             }
-            var latestRelease = releases.publish(new ReleaseApplicationService.PublishRelease(
-                    actorId, projectId, "fr-FR", ReleaseApplicationService.JSON_FLAT));
-            String latestChecksum = latestRelease.checksumSha256();
+            var latestJob = publishJobAndAwait(actorId, projectId, "sync-updated");
+            String latestReleaseId = latestJob.releaseId();
+            String latestChecksum = latestChecksum(projectId, "fr-FR");
 
             assertEquals(latestChecksum, notificationChecksum(json.readTree(nettyReader.readLine())));
             assertEquals(latestChecksum, notificationChecksum(json.readTree(
                     websocketMessages.poll(5, TimeUnit.SECONDS))));
 
-            String endpoint = "http://localhost:" + port + "/api/v1/public/projects/" + projectId
-                    + "/translations/fr-FR/latest";
             ResponseEntity<JsonNode> metadata = http.getForEntity(endpoint, JsonNode.class);
-            assertEquals(latestRelease.id(),
-                    metadata.getBody().path("id").asText());
+            assertEquals(latestReleaseId, metadata.getBody().path("id").asText());
             assertEquals(latestChecksum, metadata.getBody().path("checksumSha256").asText());
             ResponseEntity<String> snapshot = http.getForEntity(endpoint + "/content", String.class);
             assertEquals(HttpStatus.OK, snapshot.getStatusCode());
@@ -310,6 +311,33 @@ class MySql8MigrationsTest {
             assertEquals(latestChecksum, checksum(snapshot.getBody()));
             websocket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
         }
+    }
+
+    private ReleaseApplicationService.ReleaseJobView publishJobAndAwait(long actorId, long projectId,
+                                                                         String idempotencyKey)
+            throws InterruptedException {
+        var command = new ReleaseApplicationService.PublishRelease(
+                actorId, projectId, "fr-FR", ReleaseApplicationService.JSON_FLAT);
+        var created = releases.requestPublish(command, idempotencyKey);
+        var duplicate = releases.requestPublish(command, idempotencyKey);
+        assertEquals(created.id(), duplicate.id(), "repeating the publish request must reuse its job");
+        releases.dispatchQueuedJobs();
+
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+        while (System.nanoTime() < deadline) {
+            var current = releases.getJob(actorId, projectId, Long.parseLong(created.id()));
+            if ("COMPLETED".equals(current.status())) return current;
+            if ("FAILED".equals(current.status())) {
+                throw new AssertionError("Release job failed: " + current.error());
+            }
+            Thread.sleep(25);
+        }
+        throw new AssertionError("Release job did not complete before the integration-test deadline");
+    }
+
+    private String latestChecksum(long projectId, String locale) {
+        var metadata = releases.latestPublished(projectId, locale, ReleaseApplicationService.JSON_FLAT);
+        return metadata.checksumSha256();
     }
 
     private String subscription(long projectId) {

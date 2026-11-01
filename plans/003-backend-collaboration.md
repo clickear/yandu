@@ -17,7 +17,7 @@
 - Import 已支持严格扁平字符串 JSON 解析、差异预览、项目内幂等键、预览 SHA-256 确认、持久化异步任务、状态查询、失败重试和 30 分钟失联任务回收；apply 时重检项目配置及词条/译文版本。此阶段限 5 MiB / 10,000 项，目标语言导入要求对应源 key 已存在。前端 API 模式已接入预览确认与任务提交。
 - 前端已提供本地原型/API 两种明确模式；服务端模式使用 OIDC Authorization Code + PKCE，无示例数据；支持项目/语言/成员/词条管理、服务端分页搜索与状态筛选、译文保存送审/审核、网络失败后恢复编辑草稿、源文案修改/历史/归档、JSON 导入预览与状态追踪、发布下载，以及本地项目迁移预览和异步进度查询。具体 IdP、API URL 和 audience 由部署环境配置。
 - B12 本地迁移切片已实现：严格重复字段校验、UTF-8 JSON v1 包校验/规范化、项目名称预览冲突、重新生成服务端 ID、译文重置为草稿、持久化分块任务与 ID 映射、同包幂等和失败重试。后端全套 37 项测试及 Spring Modulith 边界检查通过；前端 Node 22 生产构建通过。Flyway V1–V9 已在 MySQL 8.0.46 执行；迁移任务的完整 UI→API→MySQL 恢复重试路径仍需单独验收。
-- B14 消费端主流程的 MySQL 验收补强：新增 opt-in MySQL 8 集成路径，在真实 MySQL 持久化快照后通过未认证 HTTP 接口读取元数据和正文，并重新校验 SHA-256；GitHub Actions MySQL 8.0.46 运行中该集成类 4 项检查全部通过。消费 Starter 的校验/原子替换和同步传输协议已有各自模块测试；opt-in MySQL 联调通过 `ReleaseApplicationService.publish` 和真实 MyBatis/MySQL 创建两版不可变发布快照，长连接收到 AFTER_COMMIT 通知后从匿名 HTTP 拉取最新内容并核对 SHA-256；GitHub Actions MySQL 8.0.46 CI 4 项集成检查全部通过。Starter 原子替换、格式解析及两种消费端传输模块另有协议测试。
+- B14 消费端主流程的 MySQL 验收补强：新增 opt-in MySQL 8 集成路径，在真实 MySQL 持久化快照后通过未认证 HTTP 接口读取元数据和正文，并重新校验 SHA-256；GitHub Actions MySQL 8.0.46 运行中该集成类 4 项检查全部通过。消费 Starter 的校验/原子替换和同步传输协议已有各自模块测试；opt-in MySQL 联调现改为从 `ReleaseApplicationService.requestPublish` 创建可重试持久化任务，验证相同幂等键复用任务，并驱动 worker 完成真实 MyBatis/MySQL 发布；Netty/WebSocket 收到 AFTER_COMMIT 通知后从匿名 HTTP 拉取快照。该扩展待 CI 验证；此前直接 `publish` 路径的 CI 集成检查已通过。Starter 原子替换、格式解析及两种消费端传输模块另有协议测试。
 - AuditLog 已在业务事务中记录项目/语言/成员、词条、译文审核、导入和发布/回滚操作；敏感源文和译文正文不写入审计元数据，并提供项目成员分页读取接口。
 - Spring Boot Actuator 已仅暴露健康端点；`/livez` 只检查进程存活，`/readyz` 将 MySQL 连通性纳入就绪检查。探针匿名可访问，健康组件名和详情不对外返回；数据库断连时的真实运行时状态仍待 MySQL 8.0 环境验证。
 - Catalog 端口已将源词条与 `GlossaryTerms` 分开，分页结果与总数按同一查询返回；Translation 工作台将列表和统计作为一个查询结果，保留单个 MyBatis 适配器与现有测试文件。
