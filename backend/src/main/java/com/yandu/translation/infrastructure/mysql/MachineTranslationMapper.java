@@ -115,8 +115,9 @@ public interface MachineTranslationMapper extends BaseMapper<MachineTranslationM
     @Select("SELECT COUNT(*) FROM machine_translation_job_items WHERE project_id = #{projectId} AND job_id = #{jobId}")
     long countItems(@Param("projectId") long projectId, @Param("jobId") long jobId);
 
-    @Select("SELECT id FROM machine_translation_jobs WHERE status IN ('QUEUED', 'RUNNING') ORDER BY id")
-    List<Long> findUnfinishedJobIds();
+    @Select("SELECT DISTINCT job_id FROM machine_translation_job_items "
+            + "WHERE status = 'RUNNING' AND updated_at < #{staleBefore} ORDER BY job_id")
+    List<Long> findStaleJobIds(@Param("staleBefore") Instant staleBefore);
 
     @Update("""
             UPDATE machine_translation_job_items
@@ -131,9 +132,9 @@ public interface MachineTranslationMapper extends BaseMapper<MachineTranslationM
                SET status = CASE WHEN attempts < 3 THEN 'QUEUED' ELSE 'FAILED' END,
                    error = CASE WHEN attempts < 3 THEN NULL ELSE '任务工作进程中断，重试次数已用尽。' END,
                    updated_at = #{updatedAt}
-             WHERE status = 'RUNNING' AND updated_at < #{staleBefore}
+             WHERE job_id = #{jobId} AND status = 'RUNNING' AND updated_at < #{staleBefore}
             """)
-    int recoverStaleItems(@Param("staleBefore") Instant staleBefore,
+    int recoverStaleItems(@Param("jobId") long jobId, @Param("staleBefore") Instant staleBefore,
                           @Param("updatedAt") Instant updatedAt);
 
     @Select("""
@@ -156,21 +157,27 @@ public interface MachineTranslationMapper extends BaseMapper<MachineTranslationM
                   @Param("updatedAt") Instant updatedAt);
 
     @Update("UPDATE machine_translation_job_items SET status = 'QUEUED', attempts = GREATEST(attempts - 1, 0), "
-            + "error = NULL, updated_at = #{updatedAt} WHERE job_id = #{jobId} AND entry_id = #{entryId} AND status = 'RUNNING'")
-    int releaseClaim(@Param("jobId") long jobId, @Param("entryId") long entryId,
+            + "error = NULL, updated_at = #{updatedAt} WHERE job_id = #{jobId} AND entry_id = #{entryId} "
+            + "AND status = 'RUNNING' AND attempts = #{attempt}")
+    int releaseClaim(@Param("jobId") long jobId, @Param("entryId") long entryId, @Param("attempt") int attempt,
                      @Param("updatedAt") Instant updatedAt);
+
+    @Select("SELECT entry_id FROM machine_translation_job_items WHERE job_id = #{jobId} "
+            + "AND entry_id = #{entryId} AND status = 'RUNNING' AND attempts = #{attempt} FOR UPDATE")
+    Long lockCurrentClaim(@Param("jobId") long jobId, @Param("entryId") long entryId,
+                          @Param("attempt") int attempt);
 
     @Update("""
             UPDATE machine_translation_job_items
                SET status = #{status}, error = #{message}, updated_at = #{updatedAt}
-             WHERE entry_id = #{entryId} AND job_id = #{jobId} AND status = 'RUNNING'
+             WHERE entry_id = #{entryId} AND job_id = #{jobId} AND status = 'RUNNING' AND attempts = #{attempt}
             """)
-    int completeItem(@Param("jobId") long jobId, @Param("entryId") long entryId,
+    int completeItem(@Param("jobId") long jobId, @Param("entryId") long entryId, @Param("attempt") int attempt,
                      @Param("status") String status, @Param("message") String message,
                      @Param("updatedAt") Instant updatedAt);
 
     @Select("SELECT id FROM machine_translation_jobs WHERE id = #{jobId} FOR UPDATE")
-    Long lockJobForItemCompletion(@Param("jobId") long jobId);
+    Long lockJobForItemTransition(@Param("jobId") long jobId);
 
     @Update("""
             UPDATE machine_translation_jobs j

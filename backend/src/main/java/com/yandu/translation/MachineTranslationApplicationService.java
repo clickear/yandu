@@ -177,16 +177,25 @@ public class MachineTranslationApplicationService {
 
         try {
             transactions.executeWithoutResult(transaction -> {
+                // attempts is the lease generation for accepted work. A worker whose lease
+                // expired while the provider was responding must never persist its late result.
+                if (!jobs.lockCurrentClaim(item)) return;
                 var result = translations.saveMachineDraft(new MachineDraft(item.actorId(), item.projectId(),
                         item.entryId(), item.locale(), item.sourceRevision(),
                         item.expectedTranslationVersion(), translated));
                 if (result == MachineDraftResult.APPLIED) {
-                    jobs.completeItem(item.jobId(), item.entryId(), "COMPLETED", null, clock.instant());
+                    if (!jobs.completeItem(item.jobId(), item.entryId(), item.attempts(),
+                            "COMPLETED", null, clock.instant())) {
+                        throw new IllegalStateException("Machine translation claim changed while locked");
+                    }
                 } else {
                     var message = result == MachineDraftResult.SOURCE_CHANGED
                             ? "任务创建后源文案已更新，旧译文未回填。"
                             : "任务创建后译文已修改，自动结果未覆盖当前内容。";
-                    jobs.completeItem(item.jobId(), item.entryId(), "SKIPPED", message, clock.instant());
+                    if (!jobs.completeItem(item.jobId(), item.entryId(), item.attempts(),
+                            "SKIPPED", message, clock.instant())) {
+                        throw new IllegalStateException("Machine translation claim changed while locked");
+                    }
                 }
             });
         } catch (AccessDeniedException | SecurityException accessRevoked) {
@@ -201,7 +210,8 @@ public class MachineTranslationApplicationService {
     }
 
     private void finish(JobItem item, String status, String message) {
-        jobs.completeItem(item.jobId(), item.entryId(), status, message, clock.instant());
+        // A stale provider failure is also fenced; it cannot mark a newer attempt failed.
+        jobs.completeItem(item.jobId(), item.entryId(), item.attempts(), status, message, clock.instant());
     }
 
     private Job find(long projectId, long jobId) {

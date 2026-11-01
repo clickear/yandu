@@ -4,6 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -26,6 +29,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.TransactionStatus;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.web.client.RestClient;
 import com.sun.net.httpserver.HttpServer;
@@ -38,9 +42,11 @@ class MachineTranslationApplicationServiceTest {
     private final WorkspaceApplicationService workspace = mock(WorkspaceApplicationService.class);
     private final ProjectAccessPolicy access = mock(ProjectAccessPolicy.class);
     private final AuditLog audit = mock(AuditLog.class);
+    private final TransactionTemplate transactions = mock(TransactionTemplate.class);
+    private final TaskExecutor executor = mock(TaskExecutor.class);
     private final MachineTranslationApplicationService service = new MachineTranslationApplicationService(
             jobs, provider, translations, workspace, access, () -> 500L,
-            java.time.Clock.systemUTC(), audit, mock(TransactionTemplate.class), mock(TaskExecutor.class));
+            java.time.Clock.systemUTC(), audit, transactions, executor);
 
     @Test
     void refusesToCreateATaskWhenNoProviderIsConfigured() {
@@ -87,6 +93,64 @@ class MachineTranslationApplicationServiceTest {
 
         assertEquals("301", page.items().getFirst().namespaceId());
         assertEquals("home.title", page.items().getFirst().key());
+    }
+
+    @Test
+    void lateWorkerResultDoesNotWriteDraftAfterItsClaimWasRecovered() {
+        var item = claimedItem(2);
+        var worker = new AtomicReference<Runnable>();
+        when(provider.isConfigured()).thenReturn(true);
+        when(jobs.claimNext(any())).thenReturn(Optional.of(item));
+        doAnswer(invocation -> { worker.set(invocation.getArgument(0)); return null; })
+                .when(executor).execute(any(Runnable.class));
+        when(provider.translate("你好", "zh-CN", "en-US")).thenReturn("Hello");
+        when(jobs.lockCurrentClaim(item)).thenReturn(false);
+        doAnswer(invocation -> {
+            java.util.function.Consumer<TransactionStatus> callback = invocation.getArgument(0);
+            callback.accept(mock(TransactionStatus.class));
+            return null;
+        }).when(transactions).executeWithoutResult(any());
+
+        service.dispatchQueuedItems();
+        worker.get().run();
+
+        verify(jobs).lockCurrentClaim(item);
+        verify(translations, never()).saveMachineDraft(any());
+        verify(jobs, never()).completeItem(anyLong(), anyLong(), anyInt(), any(String.class), any(), any());
+    }
+
+    @Test
+    void currentWorkerPersistsDraftAndCompletesItsClaimGeneration() {
+        var item = claimedItem(3);
+        var worker = new AtomicReference<Runnable>();
+        when(provider.isConfigured()).thenReturn(true);
+        when(jobs.claimNext(any())).thenReturn(Optional.of(item));
+        doAnswer(invocation -> { worker.set(invocation.getArgument(0)); return null; })
+                .when(executor).execute(any(Runnable.class));
+        when(provider.translate("你好", "zh-CN", "en-US")).thenReturn("Hello");
+        when(jobs.lockCurrentClaim(item)).thenReturn(true);
+        when(translations.saveMachineDraft(any())).thenReturn(TranslationApplicationService.MachineDraftResult.APPLIED);
+        when(jobs.completeItem(org.mockito.ArgumentMatchers.eq(900L), org.mockito.ArgumentMatchers.eq(501L),
+                org.mockito.ArgumentMatchers.eq(3), org.mockito.ArgumentMatchers.eq("COMPLETED"),
+                org.mockito.ArgumentMatchers.isNull(), any())).thenReturn(true);
+        doAnswer(invocation -> {
+            java.util.function.Consumer<TransactionStatus> callback = invocation.getArgument(0);
+            callback.accept(mock(TransactionStatus.class));
+            return null;
+        }).when(transactions).executeWithoutResult(any());
+
+        service.dispatchQueuedItems();
+        worker.get().run();
+
+        verify(translations).saveMachineDraft(any());
+        verify(jobs).completeItem(org.mockito.ArgumentMatchers.eq(900L), org.mockito.ArgumentMatchers.eq(501L),
+                org.mockito.ArgumentMatchers.eq(3), org.mockito.ArgumentMatchers.eq("COMPLETED"),
+                org.mockito.ArgumentMatchers.isNull(), any());
+    }
+
+    private static MachineTranslationRepository.JobItem claimedItem(int attempt) {
+        return new MachineTranslationRepository.JobItem(900L, 101L, "zh-CN", "en-US", 501L,
+                301L, "home.title", "你好", 1L, null, 11L, attempt, "RUNNING", null);
     }
 
     @Test

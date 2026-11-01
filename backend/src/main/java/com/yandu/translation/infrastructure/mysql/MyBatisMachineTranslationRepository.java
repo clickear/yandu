@@ -67,11 +67,10 @@ public class MyBatisMachineTranslationRepository implements MachineTranslationRe
 
     @Override public long itemCount(long projectId, long jobId) { return mapper.countItems(projectId, jobId); }
 
-    @Override public List<Long> unfinishedJobIds() { return mapper.findUnfinishedJobIds(); }
-
     @Override
     @Transactional
     public int retryFailed(long projectId, long jobId, Instant updatedAt) {
+        requireJobLock(jobId);
         var changed = mapper.retryFailed(projectId, jobId, updatedAt);
         if (changed > 0) mapper.refreshJob(jobId, updatedAt);
         return changed;
@@ -80,15 +79,22 @@ public class MyBatisMachineTranslationRepository implements MachineTranslationRe
     @Override
     @Transactional
     public void recoverStale(Instant staleBefore, Instant updatedAt) {
-        mapper.recoverStaleItems(staleBefore, updatedAt);
-        for (var jobId : mapper.findUnfinishedJobIds()) mapper.refreshJob(jobId, updatedAt);
+        // Always lock a job before any of its item rows, matching claim/retry/complete transitions.
+        for (var jobId : mapper.findStaleJobIds(staleBefore)) {
+            if (mapper.lockJobForItemTransition(jobId) == null) continue;
+            if (mapper.recoverStaleItems(jobId, staleBefore, updatedAt) > 0) {
+                mapper.refreshJob(jobId, updatedAt);
+            }
+        }
     }
 
     @Override
     @Transactional
     public Optional<JobItem> claimNext(Instant updatedAt) {
         var item = mapper.findNextQueuedItem();
-        if (item == null || mapper.claimItem(item.getJobId(), item.getEntryId(), updatedAt) != 1) {
+        if (item == null) return Optional.empty();
+        if (mapper.lockJobForItemTransition(item.getJobId()) == null
+                || mapper.claimItem(item.getJobId(), item.getEntryId(), updatedAt) != 1) {
             return Optional.empty();
         }
         mapper.refreshJob(item.getJobId(), updatedAt);
@@ -99,22 +105,33 @@ public class MyBatisMachineTranslationRepository implements MachineTranslationRe
     @Override
     @Transactional
     public void releaseClaim(JobItem item, Instant updatedAt) {
-        if (mapper.releaseClaim(item.jobId(), item.entryId(), updatedAt) == 1) {
+        if (mapper.lockJobForItemTransition(item.jobId()) == null) return;
+        if (mapper.releaseClaim(item.jobId(), item.entryId(), item.attempts(), updatedAt) == 1) {
             mapper.refreshJob(item.jobId(), updatedAt);
         }
     }
 
     @Override
     @Transactional
-    public void completeItem(long jobId, long entryId, String status, String message, Instant updatedAt) {
+    public boolean lockCurrentClaim(JobItem item) {
+        if (mapper.lockJobForItemTransition(item.jobId()) == null) return false;
+        return mapper.lockCurrentClaim(item.jobId(), item.entryId(), item.attempts()) != null;
+    }
+
+    @Override
+    @Transactional
+    public boolean completeItem(long jobId, long entryId, int attempt, String status, String message, Instant updatedAt) {
         // Lock the parent first so parallel workers recalculate one job's counters in a stable order.
-        if (mapper.lockJobForItemCompletion(jobId) == null) {
+        if (mapper.lockJobForItemTransition(jobId) == null) return false;
+        if (mapper.completeItem(jobId, entryId, attempt, status, message, updatedAt) != 1) return false;
+        mapper.refreshJob(jobId, updatedAt);
+        return true;
+    }
+
+    private void requireJobLock(long jobId) {
+        if (mapper.lockJobForItemTransition(jobId) == null) {
             throw new IllegalStateException("Machine translation job no longer exists");
         }
-        if (mapper.completeItem(jobId, entryId, status, message, updatedAt) != 1) {
-            throw new IllegalStateException("Machine translation item state changed concurrently");
-        }
-        mapper.refreshJob(jobId, updatedAt);
     }
 
     private static Job toJob(MachineTranslationMapper.JobRow row) {

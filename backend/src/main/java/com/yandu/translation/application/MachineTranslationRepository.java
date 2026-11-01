@@ -21,17 +21,18 @@ public interface MachineTranslationRepository {
 
     long itemCount(long projectId, long jobId);
 
-    List<Long> unfinishedJobIds();
-
     int retryFailed(long projectId, long jobId, Instant updatedAt);
 
     void recoverStale(Instant staleBefore, Instant updatedAt);
 
     Optional<JobItem> claimNext(Instant updatedAt);
 
+    /** Locks the parent job and confirms this worker still owns the current item attempt. */
+    boolean lockCurrentClaim(JobItem item);
+
     void releaseClaim(JobItem item, Instant updatedAt);
 
-    void completeItem(long jobId, long entryId, String status, String message, Instant updatedAt);
+    boolean completeItem(long jobId, long entryId, int attempt, String status, String message, Instant updatedAt);
 
     record JobDraft(long id, long projectId, String sourceLocale, String locale, long actorId, String idempotencyKey,
                     String requestHash, List<Long> entryIds, Instant createdAt) { }
