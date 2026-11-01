@@ -447,6 +447,20 @@ export type RemoteReleaseJob = {
   releaseId: string | null; error: string | null; createdAt: string; updatedAt: string
 }
 
+export type RemoteAuditPage = {
+  page: number
+  pageSize: number
+  total: number
+  items: {
+    id: string; projectId: string; actorId: string; action: string
+    resourceType: string; resourceId: string | null; detailsJson: string; occurredAt: string
+  }[]
+}
+
+export function listRemoteAudit(projectId: string, page: number) {
+  return request<RemoteAuditPage>(`/projects/${projectId}/audit-log?page=${page}&pageSize=50`)
+}
+
 export function requestRemoteRelease(projectId: string, locale: string,
                                      format: 'json-flat-v1' | 'java-properties-v1', idempotencyKey: string) {
   return request<RemoteReleaseJob>(`/projects/${projectId}/releases`, {

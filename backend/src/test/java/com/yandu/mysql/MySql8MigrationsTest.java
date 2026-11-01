@@ -390,6 +390,19 @@ class MySql8MigrationsTest {
                 new HttpEntity<>("{\"expectedVersion\":2}", headers), JsonNode.class);
         assertEquals(HttpStatus.OK, submitted.getStatusCode());
         assertEquals("IN_REVIEW", submitted.getBody().path("status").asText());
+
+        ResponseEntity<JsonNode> audit = http.exchange("http://localhost:" + port + "/api/v1/projects/"
+                        + projectId + "/audit-log?page=1&pageSize=50", HttpMethod.GET,
+                new HttpEntity<>(headers), JsonNode.class);
+        assertEquals(HttpStatus.OK, audit.getStatusCode());
+        var auditItems = audit.getBody().path("items");
+        assertTrue(java.util.stream.StreamSupport.stream(auditItems.spliterator(), false)
+                .anyMatch(item -> "IMPORT_COMPLETED".equals(item.path("action").asText())));
+        assertTrue(java.util.stream.StreamSupport.stream(auditItems.spliterator(), false)
+                .anyMatch(item -> "TRANSLATION_SUBMITTED".equals(item.path("action").asText())));
+        String safeAuditMetadata = auditItems.toString();
+        assertFalse(safeAuditMetadata.contains("Hello {name}"), "audit metadata must not expose translation text");
+        assertFalse(safeAuditMetadata.contains("你好，{name}"), "audit metadata must not expose source text");
     }
 
     private JsonNode awaitImportStatus(String jobEndpoint, HttpHeaders headers, String expectedStatus)

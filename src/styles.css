@@ -1736,6 +1736,7 @@ th > span:not(.sr-only) {
   font-size: 10px;
   overflow-wrap: anywhere;
 }
+.release-details .audit-metadata { white-space: pre-wrap; }
 .release-actions {
   display: flex;
   flex-wrap: wrap;

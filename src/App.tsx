@@ -64,6 +64,7 @@ import {
   downloadRemoteReleaseJobResult,
   downloadRemoteReleaseSnapshot,
   listRemoteReleases,
+  listRemoteAudit,
   rollbackRemoteRelease,
   getCurrentActorId,
   getProjectRole,
@@ -105,7 +106,7 @@ import {
   getMachineTranslationJobItems,
   retryMachineTranslationJob,
 } from './backend'
-import type { MachineTranslationJob, MachineTranslationJobItems, ProjectMigration, RemoteNamespace, RemoteRelease, RemoteReleaseJob } from './backend'
+import type { MachineTranslationJob, MachineTranslationJobItems, ProjectMigration, RemoteAuditPage, RemoteNamespace, RemoteRelease, RemoteReleaseJob } from './backend'
 
 function readInitial() {
   try {
@@ -452,7 +453,7 @@ export default function App() {
   const [archivedLocales, setArchivedLocales] = useState<string[]>([])
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('all')
-  const [modal, setModal] = useState<'project' | 'entry' | 'language' | 'import' | 'members' | 'glossary' | 'migration' | 'machine-translation' | 'releases' | null>(null)
+  const [modal, setModal] = useState<'project' | 'entry' | 'language' | 'import' | 'members' | 'glossary' | 'migration' | 'machine-translation' | 'releases' | 'audit' | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [sourceEditingId, setSourceEditingId] = useState<string | null>(null)
   const [sourceText, setSourceText] = useState('')
@@ -494,6 +495,10 @@ export default function App() {
   const [releaseJobsLoading, setReleaseJobsLoading] = useState(false)
   const [releaseJob, setReleaseJob] = useState<RemoteReleaseJob | null>(null)
   const [releaseJobError, setReleaseJobError] = useState('')
+  const [auditPage, setAuditPage] = useState(1)
+  const [auditData, setAuditData] = useState<RemoteAuditPage | null>(null)
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditError, setAuditError] = useState('')
   const releaseRequestKeys = useRef(new Map<string, string>())
   const downloadedReleaseJobs = useRef(new Set<string>())
   const releaseJobStatuses = useRef(new Map<string, string>())
@@ -632,6 +637,20 @@ export default function App() {
     const timer = window.setInterval(() => { void refreshJobs() }, 2000)
     return () => { active = false; window.clearInterval(timer) }
   }, [authStatus, modal, projectId, locale])
+
+  useEffect(() => {
+    if (!backendEnabled || authStatus !== 'ready' || modal !== 'audit' || !projectId) return
+    let active = true
+    setAuditData(null)
+    setAuditLoading(true)
+    setAuditError('')
+    void listRemoteAudit(projectId, auditPage).then((result) => {
+      if (active) setAuditData(result)
+    }).catch((error: unknown) => {
+      if (active) setAuditError(error instanceof Error ? error.message : '无法读取操作记录。')
+    }).finally(() => { if (active) setAuditLoading(false) })
+    return () => { active = false }
+  }, [authStatus, modal, projectId, auditPage])
 
   useEffect(() => {
     if (!backendEnabled || authStatus !== 'ready' || !projectId || !releaseJob
@@ -1428,6 +1447,11 @@ export default function App() {
                         <FileText size={16} />发布历史
                       </button>
                     )}
+                    {backendEnabled && (
+                      <button className="button plain" onClick={() => { setAuditPage(1); openModal('audit') }}>
+                        <FileText size={16} />操作记录
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="table-scroll">
@@ -2025,6 +2049,42 @@ export default function App() {
               ))}
             </ul>
           )}
+          <div className="modal-actions"><button className="button secondary" onClick={() => setModal(null)}>关闭</button></div>
+        </Modal>
+      )}
+      {modal === 'audit' && project && backendEnabled && (
+        <Modal title={`操作记录 · ${project.name}`} onClose={() => setModal(null)} wide>
+          <p className="modal-copy">项目操作按时间倒序记录。记录只包含安全元数据，不保存源文案或译文正文。</p>
+          {auditError && <p role="alert" className="form-error">{auditError}</p>}
+          {auditLoading && !auditData ? <p className="form-hint">正在读取操作记录…</p>
+            : auditData?.items.length ? (
+              <>
+                <ul className="release-list" aria-label="项目操作记录">
+                  {auditData.items.map((item) => {
+                    let details = item.detailsJson
+                    try { details = JSON.stringify(JSON.parse(item.detailsJson), null, 2) }
+                    catch { /* Keep malformed legacy metadata visible as plain text. */ }
+                    return (
+                      <li key={item.id}>
+                        <div className="release-details">
+                          <strong>{item.action.replaceAll('_', ' ')}</strong>
+                          <span>{new Date(item.occurredAt).toLocaleString()} · 操作者 {item.actorId}</span>
+                          <small>{item.resourceType}{item.resourceId ? ` · ID ${item.resourceId}` : ''}</small>
+                          {details !== '{}' && <code className="audit-metadata">{details}</code>}
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+                <div className="modal-actions">
+                  <span className="form-hint">共 {auditData.total} 条 · 第 {auditData.page} 页</span>
+                  <button className="button secondary" disabled={auditPage <= 1 || auditLoading}
+                    onClick={() => setAuditPage((page) => page - 1)}>上一页</button>
+                  <button className="button secondary" disabled={auditPage * auditData.pageSize >= auditData.total || auditLoading}
+                    onClick={() => setAuditPage((page) => page + 1)}>下一页</button>
+                </div>
+              </>
+            ) : <div className="empty-state"><FileText size={30} /><p>{auditError ? '操作记录加载失败。' : '暂无操作记录。'}</p></div>}
           <div className="modal-actions"><button className="button secondary" onClick={() => setModal(null)}>关闭</button></div>
         </Modal>
       )}
