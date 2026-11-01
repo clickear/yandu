@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yandu.imports.infrastructure.mysql.ImportMapper;
-import com.yandu.release.ReleasePublishedEvent;
+import com.yandu.release.ReleaseApplicationService;
 import com.yandu.translation.infrastructure.mysql.MachineTranslationMapper;
 import com.yandu.translation.infrastructure.mysql.TranslationMapper;
 import com.yandu.workspace.infrastructure.mysql.MyBatisProjectAccessPolicy;
@@ -23,14 +23,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.jdbc.datasource.DataSourceUtils;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
@@ -57,8 +54,7 @@ class MySql8MigrationsTest {
     @Autowired private WorkspaceMapper workspace;
     @Autowired private TestRestTemplate http;
     @Autowired private ObjectMapper json;
-    @Autowired private ApplicationEventPublisher events;
-    @Autowired private TransactionTemplate transactions;
+    @Autowired private ReleaseApplicationService releases;
     @LocalServerPort private int port;
 
     @Test
@@ -184,12 +180,8 @@ class MySql8MigrationsTest {
     void committedMysqlReleasePushesToNettyAndWebSocketConsumers() throws Exception {
         long actorId = 930_000_000_000_001L;
         long projectId = 930_000_000_000_002L;
-        long initialReleaseId = 930_000_000_000_003L;
-        long latestReleaseId = 930_000_000_000_004L;
         String initialContent = "{\"welcome.title\":\"Bonjour\"}\n";
         String latestContent = "{\"welcome.title\":\"Bienvenue\"}\n";
-        String initialChecksum = checksum(initialContent);
-        String latestChecksum = checksum(latestContent);
 
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
             statement.executeUpdate("""
@@ -198,15 +190,53 @@ class MySql8MigrationsTest {
                     """);
             statement.executeUpdate("""
                     INSERT INTO projects (id, owner_id, name, source_locale, version, status, created_at, updated_at)
-                    VALUES (930000000000002, 930000000000001, 'Realtime sync check', 'zh-CN', 1, 'ACTIVE',
+                    VALUES (930000000000002, 930000000000001, 'Realtime sync check', 'en-US', 1, 'ACTIVE',
                             UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
                     """);
             statement.executeUpdate("""
                     INSERT INTO project_languages (project_id, locale, created_at)
                     VALUES (930000000000002, 'fr-FR', UTC_TIMESTAMP(6))
                     """);
+            statement.executeUpdate("""
+                    INSERT INTO project_members (project_id, user_id, role, created_at)
+                    VALUES (930000000000002, 930000000000001, 'OWNER', UTC_TIMESTAMP(6))
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO namespaces (id, project_id, name, status, created_by, created_at)
+                    VALUES (930000000000003, 930000000000002, 'default', 'ACTIVE',
+                            930000000000001, UTC_TIMESTAMP(6))
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO catalog_entries
+                      (id, project_id, namespace_id, source_locale, entry_key, source_text, source_revision,
+                       version, status, created_by, updated_by, created_at, updated_at)
+                    VALUES (930000000000004, 930000000000002, 930000000000003, 'en-US',
+                            'welcome.title', 'Welcome', 1, 1, 'ACTIVE', 930000000000001,
+                            930000000000001, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO translations
+                      (id, project_id, entry_id, target_locale, value, based_on_source_revision,
+                       status, version, translated_by, updated_by, created_at, updated_at)
+                    VALUES (930000000000005, 930000000000002, 930000000000004, 'fr-FR',
+                            'Bonjour', 1, 'APPROVED', 1, 930000000000001,
+                            930000000000001, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO translation_revisions
+                      (id, project_id, translation_id, entry_id, target_locale, translation_version,
+                       value, based_on_source_revision, edited_by, created_at)
+                    VALUES (930000000000006, 930000000000002, 930000000000005, 930000000000004,
+                            'fr-FR', 1, 'Bonjour', 1, 930000000000001, UTC_TIMESTAMP(6))
+                    """);
         }
-        insertRelease(initialReleaseId, projectId, actorId, 1, initialContent, initialChecksum);
+
+        var firstRelease = releases.publish(new ReleaseApplicationService.PublishRelease(
+                actorId, projectId, "fr-FR", ReleaseApplicationService.JSON_FLAT));
+        String initialChecksum = firstRelease.checksumSha256();
+        assertEquals(initialContent, http.getForEntity("http://localhost:" + port
+                + "/api/v1/public/projects/" + projectId
+                + "/translations/fr-FR/latest/content", String.class).getBody());
 
         try (var netty = new Socket()) {
             netty.connect(new InetSocketAddress("127.0.0.1", 19091), 3_000);
@@ -241,11 +271,28 @@ class MySql8MigrationsTest {
             assertEquals(initialChecksum, notificationChecksum(json.readTree(
                     websocketMessages.poll(5, TimeUnit.SECONDS))));
 
-            transactions.executeWithoutResult(status -> {
-                insertRelease(latestReleaseId, projectId, actorId, 2, latestContent, latestChecksum);
-                events.publishEvent(new ReleasePublishedEvent(projectId, "fr-FR", "json-flat-v1",
-                        latestReleaseId, 2, latestChecksum, java.time.Instant.now()));
-            });
+            try (var connection = dataSource.getConnection(); var update = connection.prepareStatement("""
+                    UPDATE translations
+                       SET value = 'Bienvenue', version = 2, updated_by = ?, updated_at = UTC_TIMESTAMP(6)
+                     WHERE project_id = ? AND entry_id = ? AND target_locale = 'fr-FR'
+                    """)) {
+                update.setLong(1, actorId);
+                update.setLong(2, projectId);
+                update.setLong(3, 930_000_000_000_004L);
+                assertEquals(1, update.executeUpdate());
+            }
+            try (var connection = dataSource.getConnection(); var insert = connection.prepareStatement("""
+                    INSERT INTO translation_revisions
+                      (id, project_id, translation_id, entry_id, target_locale, translation_version,
+                       value, based_on_source_revision, edited_by, created_at)
+                    VALUES (930000000000007, 930000000000002, 930000000000005, 930000000000004,
+                            'fr-FR', 2, 'Bienvenue', 1, 930000000000001, UTC_TIMESTAMP(6))
+                    """)) {
+                assertEquals(1, insert.executeUpdate());
+            }
+            var latestRelease = releases.publish(new ReleaseApplicationService.PublishRelease(
+                    actorId, projectId, "fr-FR", ReleaseApplicationService.JSON_FLAT));
+            String latestChecksum = latestRelease.checksumSha256();
 
             assertEquals(latestChecksum, notificationChecksum(json.readTree(nettyReader.readLine())));
             assertEquals(latestChecksum, notificationChecksum(json.readTree(
@@ -253,34 +300,15 @@ class MySql8MigrationsTest {
 
             String endpoint = "http://localhost:" + port + "/api/v1/public/projects/" + projectId
                     + "/translations/fr-FR/latest";
+            ResponseEntity<JsonNode> metadata = http.getForEntity(endpoint, JsonNode.class);
+            assertEquals(latestRelease.id(),
+                    metadata.getBody().path("id").asText());
+            assertEquals(latestChecksum, metadata.getBody().path("checksumSha256").asText());
             ResponseEntity<String> snapshot = http.getForEntity(endpoint + "/content", String.class);
             assertEquals(HttpStatus.OK, snapshot.getStatusCode());
             assertEquals(latestContent, snapshot.getBody());
             assertEquals(latestChecksum, checksum(snapshot.getBody()));
             websocket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
-        }
-    }
-
-    private void insertRelease(long releaseId, long projectId, long actorId, long version,
-                               String content, String checksum) {
-        var connection = DataSourceUtils.getConnection(dataSource);
-        try (var insert = connection.prepareStatement("""
-                INSERT INTO releases
-                  (id, project_id, locale, format, version_no, content, manifest_json,
-                   checksum_sha256, published_by, published_at)
-                VALUES (?, ?, 'fr-FR', 'json-flat-v1', ?, ?, '[]', ?, ?, UTC_TIMESTAMP(6))
-                """)) {
-            insert.setLong(1, releaseId);
-            insert.setLong(2, projectId);
-            insert.setLong(3, version);
-            insert.setString(4, content);
-            insert.setString(5, checksum);
-            insert.setLong(6, actorId);
-            insert.executeUpdate();
-        } catch (Exception failure) {
-            throw new IllegalStateException("Could not insert published snapshot for MySQL sync test", failure);
-        } finally {
-            DataSourceUtils.releaseConnection(connection, dataSource);
         }
     }
 
