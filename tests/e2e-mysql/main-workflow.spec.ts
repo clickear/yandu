@@ -107,8 +107,12 @@ test('MySQL-backed workspace completes machine translation, review, and release'
   await page.reload()
   await expect(page.locator('tbody tr').first()).toContainText('审核中')
   await page.getByRole('button', { name: '编辑译文 welcome.title' }).click()
+  const reviewResponse = page.waitForResponse((response) =>
+    new RegExp(`^${apiUrl}/projects/${projectId}/catalog/entries/\\d+/translations/en-US/review$`).test(response.url())
+      && response.request().method() === 'POST',
+  )
   await page.getByRole('dialog').getByRole('button', { name: '审核通过' }).click()
-  await expect(page.getByRole('status')).toContainText('审核已通过。')
+  expect((await reviewResponse).ok()).toBeTruthy()
   await expect(page.locator('tbody tr').first()).toContainText('已审核')
 
   await page.evaluate(({ key, user }) => sessionStorage.setItem(key, JSON.stringify(user)), {
