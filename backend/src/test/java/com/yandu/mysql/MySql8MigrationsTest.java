@@ -391,6 +391,47 @@ class MySql8MigrationsTest {
         assertEquals(HttpStatus.OK, submitted.getStatusCode());
         assertEquals("IN_REVIEW", submitted.getBody().path("status").asText());
 
+        try (var connection = dataSource.getConnection()) {
+            try (var identity = connection.prepareStatement("""
+                    INSERT IGNORE INTO external_identities (user_id, issuer, subject, created_at)
+                    VALUES (940000000000002, 'https://issuer.example.test', 'import-reviewer', UTC_TIMESTAMP(6))
+                    """)) {
+                identity.executeUpdate();
+            }
+            try (var member = connection.prepareStatement("""
+                    INSERT IGNORE INTO project_members (project_id, user_id, role, created_at)
+                    VALUES (?, 940000000000002, 'REVIEWER', UTC_TIMESTAMP(6))
+                    """)) {
+                member.setLong(1, projectId);
+                member.executeUpdate();
+            }
+        }
+        HttpHeaders reviewerHeaders = authenticatedHeaders("mysql-import-reviewer-token", "import-reviewer");
+        String reviewEndpoint = translationEndpoint + "/review";
+        ResponseEntity<JsonNode> returned = http.postForEntity(reviewEndpoint,
+                new HttpEntity<>("{\"expectedVersion\":2,\"decision\":\"REQUEST_CHANGES\","
+                        + "\"reason\":\"请保留姓名占位符。\"}", reviewerHeaders), JsonNode.class);
+        assertEquals(HttpStatus.OK, returned.getStatusCode());
+        assertEquals("CHANGES_REQUESTED", returned.getBody().path("status").asText());
+        assertEquals("请保留姓名占位符。", returned.getBody().path("latestReviewReason").asText());
+
+        String revisedBody = json.writeValueAsString(java.util.Map.of(
+                "expectedVersion", 3, "basedOnSourceRevision", 1, "value", "Hello there, {name}"));
+        ResponseEntity<JsonNode> revised = http.exchange(translationEndpoint, HttpMethod.PUT,
+                new HttpEntity<>(revisedBody, headers), JsonNode.class);
+        assertEquals(HttpStatus.OK, revised.getStatusCode());
+        assertEquals(4, revised.getBody().path("version").asInt());
+        ResponseEntity<JsonNode> resubmitted = http.postForEntity(translationEndpoint + "/submit",
+                new HttpEntity<>("{\"expectedVersion\":4}", headers), JsonNode.class);
+        assertEquals(HttpStatus.OK, resubmitted.getStatusCode());
+        assertEquals(5, resubmitted.getBody().path("version").asInt());
+        ResponseEntity<JsonNode> approved = http.postForEntity(reviewEndpoint,
+                new HttpEntity<>("{\"expectedVersion\":5,\"decision\":\"APPROVE\"}", reviewerHeaders),
+                JsonNode.class);
+        assertEquals(HttpStatus.OK, approved.getStatusCode());
+        assertEquals("APPROVED", approved.getBody().path("status").asText());
+        assertEquals(6, approved.getBody().path("version").asInt());
+
         ResponseEntity<JsonNode> audit = http.exchange("http://localhost:" + port + "/api/v1/projects/"
                         + projectId + "/audit-log?page=1&pageSize=50", HttpMethod.GET,
                 new HttpEntity<>(headers), JsonNode.class);
@@ -400,6 +441,8 @@ class MySql8MigrationsTest {
                 .anyMatch(item -> "IMPORT_COMPLETED".equals(item.path("action").asText())));
         assertTrue(java.util.stream.StreamSupport.stream(auditItems.spliterator(), false)
                 .anyMatch(item -> "TRANSLATION_SUBMITTED".equals(item.path("action").asText())));
+        assertTrue(java.util.stream.StreamSupport.stream(auditItems.spliterator(), false)
+                .anyMatch(item -> "TRANSLATION_REVIEW_DECIDED".equals(item.path("action").asText())));
         String safeAuditMetadata = auditItems.toString();
         assertFalse(safeAuditMetadata.contains("Hello {name}"), "audit metadata must not expose translation text");
         assertFalse(safeAuditMetadata.contains("你好，{name}"), "audit metadata must not expose source text");
