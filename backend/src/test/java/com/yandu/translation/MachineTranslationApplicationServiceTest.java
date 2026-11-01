@@ -15,6 +15,7 @@ import com.yandu.audit.AuditLog;
 import com.yandu.translation.application.MachineTranslationProvider;
 import com.yandu.translation.application.MachineTranslationRepository;
 import com.yandu.translation.infrastructure.http.LibreTranslateProvider;
+import com.yandu.translation.infrastructure.http.OpenAiCompatibleProvider;
 import com.yandu.workspace.ProjectAccessPolicy;
 import com.yandu.workspace.WorkspaceApplicationService;
 import java.nio.charset.StandardCharsets;
@@ -174,6 +175,38 @@ class MachineTranslationApplicationServiceTest {
             org.junit.jupiter.api.Assertions.assertTrue(requestBody.get().contains("\"source\":\"zh\""));
             org.junit.jupiter.api.Assertions.assertTrue(requestBody.get().contains("\"target\":\"en\""));
             org.junit.jupiter.api.Assertions.assertTrue(requestBody.get().contains("\"api_key\":\"test-secret\""));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void openAiCompatibleAdapterSendsModelAndTranslationPromptToChatCompletions() throws Exception {
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var requestBody = new AtomicReference<String>();
+        var authorization = new AtomicReference<String>();
+        server.createContext("/v1/chat/completions", exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            var response = "{\"choices\":[{\"message\":{\"content\":\"Hello {name}\"}}]}"
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            var adapter = new OpenAiCompatibleProvider(RestClient.builder(),
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/v1/",
+                    "server-secret", "translation-model", 5000);
+
+            assertEquals("Hello {name}", adapter.translate("你好 {name}", "zh-CN", "en-US"));
+            assertEquals("Bearer server-secret", authorization.get());
+            org.junit.jupiter.api.Assertions.assertTrue(requestBody.get().contains("\"model\":\"translation-model\""));
+            org.junit.jupiter.api.Assertions.assertTrue(requestBody.get().contains("\"content\":\"你好 {name}\""));
+            org.junit.jupiter.api.Assertions.assertTrue(requestBody.get().contains("zh-CN"));
+            org.junit.jupiter.api.Assertions.assertTrue(requestBody.get().contains("en-US"));
         } finally {
             server.stop(0);
         }

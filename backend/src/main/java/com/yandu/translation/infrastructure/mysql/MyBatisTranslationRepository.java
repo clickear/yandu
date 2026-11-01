@@ -93,7 +93,13 @@ public class MyBatisTranslationRepository implements TranslationRepository {
     @Override
     public void markNeedsReview(long projectId, long entryId, long sourceRevision,
                                 long sourceEditorId, Instant occurredAt) {
-        mapper.markNeedsReview(projectId, entryId, sourceRevision, sourceEditorId, occurredAt);
+        for (var row : mapper.findForSourceChange(projectId, entryId, sourceRevision)) {
+            var translation = toDomain(row);
+            var expectedVersion = translation.version();
+            if (translation.markNeedsReview(sourceRevision, sourceEditorId)) {
+                update(translation, expectedVersion, occurredAt);
+            }
+        }
     }
 
     private Translation toDomain(TranslationMapper.TranslationRow row) {

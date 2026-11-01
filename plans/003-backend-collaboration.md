@@ -29,6 +29,7 @@
 - 在 MySQL 8.0.46 上对最新单项查询执行了 API/worker 集成验证：任务完成后改键并移动词条，结果接口返回当前键和命名空间；同时发现前端改键/移动所依赖的单词条 GET 路由未在 Controller 暴露，已补上并覆盖 API controller 测试。随后通过浏览器 API 模式、有效本地 RS256 测试 token、MySQL 8.0.46 和 LibreTranslate 协议 stub 走通创建项目/词条→机器翻译→草稿回填→从任务定位词条→编辑器读取持久化译文；未覆盖真实部署 IdP/外部 provider。浏览器链路还暴露 Jackson 默认省略 null 与前端适配器只判断 `null` 的兼容问题，适配器现把缺失译文映射为空草稿并防止进度统计对缺值抛错；JDK 21 后端 54 项测试、Node 22 前端 26 项单测和 7 项本地原型 Playwright E2E 通过，Node 22 生产构建通过。
 - 机器翻译 worker 增加执行代次围栏：结果回填前需在事务中锁定任务与当前 RUNNING 任务项，并确认 `attempts` 与领取时一致；过期 worker 的成功/失败结果和队列释放都不能影响后续尝试。统一任务行优先的锁序覆盖领取、失败重试、超时回收、释放与完成。任务汇总状态规则已放入 `MachineTranslationJob` 领域聚合，MyBatis 适配器读取任务项计数并保存聚合结果。JDK 21 全套后端 58 项测试通过（含聚合状态规则与迟到 worker 不写回用例），Node 22 前端 26 项单测与生产构建通过。另在隔离的官方 MySQL 8.0.46 实例重新执行 V1–V9、加载当前 Mapper，并运行临时 MyBatis 集成验证：旧代次不能完成或释放新领取，完成/失败/跳过的混合结果会被正确归纳为部分失败及首个错误摘要。该验证不覆盖多实例压力、回收与完成的并发竞争矩阵或正式环境；真实 provider 与部署 IdP 仍待配置验证。
 - 译文乐观锁发生在 SQL `UPDATE ... WHERE version = expectedVersion` 阶段的并发冲突，现由 Repository 端口以专用异常返回，并在同一事务中用 MySQL 锁定读取得到实际版本；应用服务将保存、送审和审核路径统一映射为带 `expectedVersion` / `actualVersion` 的译文冲突 409。机器翻译回填则将此冲突转为可见的跳过结果。JDK 21 下后端全套 59 项测试通过；在隔离 MySQL 8.0.46 上执行 V1–V9，并用真实 MyBatis 更新语句触发陈旧版本冲突，确认实际版本值正确返回。前端未改动，既有 Node 22 单测与生产构建结果继续适用；双用户完整 API 并发流程及生产 IdP 仍待部署环境验收。
+- 机器翻译 provider 配置现支持 `libretranslate`（默认）和 `openai-compatible`；后者通过 Chat Completions 协议连接大模型 API 或兼容第三方网关，服务端使用 `YANDU_MT_PROVIDER`、`YANDU_MT_BASE_URL`、`YANDU_MT_MODEL`、`YANDU_MT_API_KEY` 与 timeout 配置，不向浏览器暴露密钥。OpenAI-compatible 适配器由本地 HTTP stub 验证 endpoint、模型、提示词、Bearer 鉴权与译文解析；未使用真实供应商凭据，真实服务调用仍未验证。源文更新后的译文失效现锁定受影响译文并调用 `Translation.markNeedsReview` 领域规则后乐观更新；临时 MyBatis 集成用例已在隔离 MySQL 8.0.46 验证重复源事件不会重复增加版本。JDK 21 下后端全套 60 项测试通过；前端无改动，本切片未重复运行前端检查。
 
 ## 阶段 A：产品与接口决策
 
@@ -56,7 +57,7 @@
 ## 阶段 C：协作与交付
 
 - [ ] 实现译文保存、自动复核失效、审核状态机和并发冲突恢复；完成 B05 验收。机器翻译闭环另按 B13 实施。
-- [ ] 完成机器翻译 B13 的多实例/更高并发验收，并配置真实 LibreTranslate-compatible endpoint 验证 API→worker→草稿回填；本地 MySQL 8.0.46 + 协议 stub 的幂等、人工译文保护、源版本保护和回填链路已通过；无 provider 凭证时不标记真实外部调用已验证。
+- [ ] 完成机器翻译 B13 的多实例/更高并发验收，并使用部署方真实配置的大模型或第三方 provider 验证 API→worker→草稿回填；本地 MySQL 8.0.46 + 协议 stub 的幂等、人工译文保护、源版本保护和回填链路已通过，LibreTranslate 和 OpenAI-compatible 协议适配器均有本地 HTTP stub 检查；无真实 provider 凭证时不标记外部调用已验证。
 - [ ] 实现质量规则、术语和翻译记忆建议、异步导入/导出任务；完成 B06–B07 验收。
 - [ ] 实现质量门禁、不可变发布快照、JSON/Java Properties 导出、历史与回滚；完成 B08–B10 验收。
 - [ ] 执行 API/数据库/权限/并发/恢复验证，完成 100 万译文目标数据集和 50 并发性能基准。

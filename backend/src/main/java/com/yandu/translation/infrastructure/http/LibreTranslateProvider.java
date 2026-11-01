@@ -8,12 +8,10 @@ import java.util.Locale;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
-import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
 /** LibreTranslate-compatible HTTP adapter. Credentials remain server-side configuration. */
-@Component
 public class LibreTranslateProvider implements MachineTranslationProvider {
 
     private final URI baseUri;

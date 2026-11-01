@@ -268,7 +268,10 @@ public class MachineTranslationApplicationService {
     public record JobItemPage(int page, int pageSize, long total, List<JobItemView> items) { }
 
     public static final class ProviderNotConfiguredException extends RuntimeException {
-        public ProviderNotConfiguredException() { super("机器翻译服务尚未配置，请设置服务端 YANDU_MT_BASE_URL。"); }
+        public ProviderNotConfiguredException() {
+            super("机器翻译服务尚未配置，请检查服务端 YANDU_MT_PROVIDER、YANDU_MT_BASE_URL；"
+                    + "使用大模型适配器时还需设置 YANDU_MT_MODEL。");
+        }
     }
     public static final class IdempotencyConflictException extends RuntimeException {
         public IdempotencyConflictException(String key) { super("幂等键已用于不同的机器翻译请求：" + key); }

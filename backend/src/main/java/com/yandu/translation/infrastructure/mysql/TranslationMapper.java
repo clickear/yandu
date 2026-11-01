@@ -140,6 +140,19 @@ public interface TranslationMapper extends BaseMapper<TranslationMapper.Translat
     Long findVersionForUpdate(@Param("id") long id, @Param("projectId") long projectId,
                               @Param("entryId") long entryId, @Param("locale") String locale);
 
+    @Select("""
+            SELECT id, project_id, entry_id, target_locale, value, based_on_source_revision,
+                   status, version, translated_by, updated_by, created_at, updated_at
+              FROM translations
+             WHERE project_id = #{projectId} AND entry_id = #{entryId}
+               AND based_on_source_revision < #{sourceRevision} AND status <> 'NEEDS_REVIEW'
+             ORDER BY target_locale
+             FOR UPDATE
+            """)
+    java.util.List<TranslationRow> findForSourceChange(@Param("projectId") long projectId,
+                                                        @Param("entryId") long entryId,
+                                                        @Param("sourceRevision") long sourceRevision);
+
     @Insert("""
             INSERT INTO translation_revisions
                 (id, project_id, translation_id, entry_id, target_locale, translation_version,
@@ -188,19 +201,6 @@ public interface TranslationMapper extends BaseMapper<TranslationMapper.Translat
     ReviewDecisionRow latestDecision(@Param("projectId") long projectId,
                                      @Param("entryId") long entryId,
                                      @Param("locale") String locale);
-
-    @Update("""
-            UPDATE translations
-               SET status = 'NEEDS_REVIEW', version = version + 1,
-                   updated_by = #{sourceEditorId}, updated_at = #{occurredAt}
-             WHERE project_id = #{projectId} AND entry_id = #{entryId}
-               AND based_on_source_revision < #{sourceRevision} AND status <> 'NEEDS_REVIEW'
-            """)
-    int markNeedsReview(@Param("projectId") long projectId,
-                        @Param("entryId") long entryId,
-                        @Param("sourceRevision") long sourceRevision,
-                        @Param("sourceEditorId") long sourceEditorId,
-                        @Param("occurredAt") Instant occurredAt);
 
     @TableName("translations")
     @Getter

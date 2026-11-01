@@ -62,7 +62,9 @@ yandu:
   cors:
     allowed-origins: ${YANDU_CORS_ALLOWED_ORIGINS:http://localhost:5173}
   machine-translation:
+    provider: ${YANDU_MT_PROVIDER:libretranslate}
     base-url: ${YANDU_MT_BASE_URL:}
     api-key: ${YANDU_MT_API_KEY:}
+    model: ${YANDU_MT_MODEL:}
     timeout-ms: ${YANDU_MT_TIMEOUT_MS:30000}
     poll-ms: ${YANDU_MT_POLL_MS:2000}
