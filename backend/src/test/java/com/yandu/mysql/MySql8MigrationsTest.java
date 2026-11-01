@@ -190,37 +190,37 @@ class MySql8MigrationsTest {
 
     @Test
     void sourceJsonImportPreviewIsIdempotentAndAppliesThroughMysqlWorker() throws Exception {
-        long projectId = 940_000_000_000_002L;
-        long namespaceId = 940_000_000_000_003L;
         String subject = "import-owner";
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
-            statement.executeUpdate("""
+            assertEquals(1, statement.executeUpdate("""
                     INSERT INTO external_identities (user_id, issuer, subject, created_at)
                     VALUES (940000000000001, 'https://issuer.example.test', 'import-owner', UTC_TIMESTAMP(6))
-                    """);
-            statement.executeUpdate("""
-                    INSERT INTO projects (id, owner_id, name, source_locale, version, status, created_at, updated_at)
-                    VALUES (940000000000002, 940000000000001, 'JSON import check', 'zh-CN', 1, 'ACTIVE',
-                            UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
-                    """);
-            statement.executeUpdate("""
-                    INSERT INTO project_languages (project_id, locale, created_at)
-                    VALUES (940000000000002, 'en-US', UTC_TIMESTAMP(6))
-                    """);
-            statement.executeUpdate("""
-                    INSERT INTO project_members (project_id, user_id, role, created_at)
-                    VALUES (940000000000002, 940000000000001, 'OWNER', UTC_TIMESTAMP(6))
-                    """);
-            statement.executeUpdate("""
-                    INSERT INTO namespaces (id, project_id, name, status, created_by, created_at)
-                    VALUES (940000000000003, 940000000000002, 'default', 'ACTIVE',
-                            940000000000001, UTC_TIMESTAMP(6))
-                    """);
+                    """));
         }
 
         HttpHeaders headers = authenticatedHeaders("mysql-import-integration-token", subject);
-        headers.set("Idempotency-Key", "source-import-940");
         headers.setContentType(MediaType.APPLICATION_JSON);
+        String projectsEndpoint = "http://localhost:" + port + "/api/v1/projects";
+        ResponseEntity<JsonNode> createdProject = http.postForEntity(projectsEndpoint,
+                new HttpEntity<>("""
+                        {"name":"JSON import check","sourceLocale":"zh-CN","description":"MySQL end-to-end","targetLocales":["en-US"]}
+                        """, headers), JsonNode.class);
+        assertEquals(HttpStatus.CREATED, createdProject.getStatusCode());
+        long projectId = Long.parseLong(createdProject.getBody().path("id").asText());
+        long namespaceId = Long.parseLong(createdProject.getBody().path("defaultNamespaceId").asText());
+        assertEquals("zh-CN", createdProject.getBody().path("sourceLocale").asText());
+        assertTrue(createdProject.getBody().path("targetLocales").toString().contains("en-US"));
+
+        ResponseEntity<JsonNode> additionalLocale = http.postForEntity(projectsEndpoint + "/" + projectId
+                        + "/languages", new HttpEntity<>("{\"locale\":\"fr-FR\"}", headers), JsonNode.class);
+        assertEquals(HttpStatus.OK, additionalLocale.getStatusCode());
+        assertTrue(additionalLocale.getBody().path("targetLocales").toString().contains("fr-FR"));
+        ResponseEntity<JsonNode> createdNamespace = http.postForEntity(projectsEndpoint + "/" + projectId
+                        + "/namespaces", new HttpEntity<>("{\"name\":\"application\"}", headers), JsonNode.class);
+        assertEquals(HttpStatus.CREATED, createdNamespace.getStatusCode());
+        namespaceId = Long.parseLong(createdNamespace.getBody().path("id").asText());
+
+        headers.set("Idempotency-Key", "source-import-940");
         String previewEndpoint = "http://localhost:" + port + "/api/v1/projects/" + projectId
                 + "/imports/previews";
         String payload = "{\"home.title\":\"欢迎\",\"home.subtitle\":\"请登录\","
