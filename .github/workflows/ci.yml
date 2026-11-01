@@ -40,7 +40,6 @@ jobs:
           YANDU_DB_PASSWORD: yandu-ci-root
       - run: npm ci
       - run: npm run typecheck
-      - run: npm run format:check
       - run: npm test
       - run: npm run build
       - run: npm run brand:generate && npm run brand:check

@@ -2,16 +2,19 @@ package com.yandu.mysql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.yandu.imports.infrastructure.mysql.ImportMapper;
 import com.yandu.translation.infrastructure.mysql.MachineTranslationMapper;
 import com.yandu.translation.infrastructure.mysql.TranslationMapper;
+import com.yandu.workspace.infrastructure.mysql.MyBatisProjectAccessPolicy;
 import com.yandu.workspace.infrastructure.mysql.WorkspaceMapper;
 import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -65,5 +68,34 @@ class MySql8MigrationsTest {
                 assertEquals(3, result.getInt(1));
             }
         }
+    }
+
+    @Test
+    void archivedProjectMembersCanReadButCannotWrite() throws Exception {
+        long actorId = 910_000_000_000_001L;
+        long projectId = 910_000_000_000_002L;
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO external_identities (user_id, issuer, subject, created_at)
+                    VALUES (910000000000001, 'https://issuer.example.test', 'archived-viewer', UTC_TIMESTAMP(6))
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO projects (id, owner_id, name, source_locale, version, status, created_at, updated_at)
+                    VALUES (910000000000002, 910000000000001, 'Archived access check', 'zh-CN', 1,
+                            'ARCHIVED', UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO project_members (project_id, user_id, role, created_at)
+                    VALUES (910000000000002, 910000000000001, 'VIEWER', UTC_TIMESTAMP(6))
+                    """);
+        }
+
+        var policy = new MyBatisProjectAccessPolicy(workspace);
+        policy.requireCanReadCatalog(actorId, projectId);
+        policy.requireCanReadTranslation(actorId, projectId);
+        assertThrows(AccessDeniedException.class,
+                () -> policy.requireCanManageTranslation(actorId, projectId));
+        assertThrows(AccessDeniedException.class,
+                () -> policy.requireCanPublish(actorId, projectId));
     }
 }

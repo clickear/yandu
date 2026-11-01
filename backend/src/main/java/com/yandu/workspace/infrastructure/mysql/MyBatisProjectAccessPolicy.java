@@ -54,9 +54,13 @@ public class MyBatisProjectAccessPolicy implements ProjectAccessPolicy {
 
     @Override
     public void requireCanReadProject(long actorId, long projectId) {
+        requireReadableMembership(actorId, projectId, "OWNER", "ADMIN", "TRANSLATOR", "REVIEWER", "VIEWER");
+    }
+
+    private void requireReadableMembership(long actorId, long projectId, String... roles) {
         requireActor(actorId);
         if (mapper.countAnyProjectMemberRoles(projectId, actorId,
-                java.util.List.of("OWNER", "ADMIN", "TRANSLATOR", "REVIEWER", "VIEWER")) != 1L) {
+                java.util.List.of(roles)) != 1L) {
             throw new AccessDeniedException("Project membership does not allow this operation");
         }
     }
@@ -68,7 +72,7 @@ public class MyBatisProjectAccessPolicy implements ProjectAccessPolicy {
 
     @Override
     public void requireCanReadCatalog(long actorId, long projectId) {
-        requireMembership(actorId, projectId, "OWNER", "ADMIN", "TRANSLATOR", "REVIEWER", "VIEWER");
+        requireReadableMembership(actorId, projectId, "OWNER", "ADMIN", "TRANSLATOR", "REVIEWER", "VIEWER");
     }
 
     @Override
@@ -83,7 +87,7 @@ public class MyBatisProjectAccessPolicy implements ProjectAccessPolicy {
 
     @Override
     public void requireCanReadTranslation(long actorId, long projectId) {
-        requireMembership(actorId, projectId, "OWNER", "ADMIN", "TRANSLATOR", "REVIEWER", "VIEWER");
+        requireReadableMembership(actorId, projectId, "OWNER", "ADMIN", "TRANSLATOR", "REVIEWER", "VIEWER");
     }
 
     @Override
