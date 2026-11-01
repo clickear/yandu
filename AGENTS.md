@@ -6,3 +6,17 @@
 - 文档变更检查链接和内容一致性；代码变更按相关范围执行类型检查、单元测试、构建和必要的 E2E，不为文档变更重复全量运行测试。
 - 品牌与各规格图片直接存于 brand/，沿用当前主分支母版和配色；不额外引入图床或 LFS。
 - 不提交凭据、真实客户数据或敏感日志；原型阶段不展示模拟的后端/登录/多人协作成功状态。
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs for this repo live as markdown files in `.scratch/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the default labels `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: use the root `GLOSSARY.md` and `docs/adr/`. See `docs/agents/domain.md`.
