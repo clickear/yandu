@@ -355,7 +355,8 @@ class MySql8MigrationsTest {
         ResponseEntity<JsonNode> retriedMachineJob = http.postForEntity(
                 machineJobsEndpoint + "/" + machineJobId + "/retry",
                 new HttpEntity<>(headers), JsonNode.class);
-        assertEquals(HttpStatus.ACCEPTED, retriedMachineJob.getStatusCode());
+        assertEquals(HttpStatus.OK, retriedMachineJob.getStatusCode());
+        assertEquals("QUEUED", retriedMachineJob.getBody().path("status").asText());
         machineTranslationJobs.dispatchQueuedItems();
         JsonNode machineCompleted = awaitMachineTranslationStatus(
                 machineJobsEndpoint + "/" + machineJobId, headers, "COMPLETED");
