@@ -74,6 +74,15 @@ test('MySQL-backed workspace completes machine translation, review, and release'
   await page.getByRole('button', { name: '机器翻译' }).click()
   const machineDialog = page.getByRole('dialog')
   await machineDialog.getByRole('button', { name: '翻译未译文案' }).click()
+  await expect.poll(async () => {
+    const response = await request.get(`${apiUrl}/projects/${projectId}/machine-translation-jobs`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+    })
+    expect(response.ok()).toBeTruthy()
+    const jobs = await response.json() as { locale: string; status: string; error: string | null }[]
+    const job = jobs.find((candidate) => candidate.locale === 'en-US')
+    return job ? `${job.status}: ${job.error ?? ''}` : 'not created'
+  }, { timeout: 30_000 }).toMatch(/^COMPLETED:/)
   await expect(machineDialog.getByText('已回填草稿')).toBeVisible({ timeout: 30_000 })
   await machineDialog.getByRole('button', { name: '定位词条' }).click()
   await expect(page.locator('tbody tr').first()).toContainText('MT: 欢迎来到言渡')
