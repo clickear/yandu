@@ -73,7 +73,12 @@ test('MySQL-backed workspace completes machine translation, review, and release'
 
   await page.getByRole('button', { name: '机器翻译' }).click()
   const machineDialog = page.getByRole('dialog')
+  const createJobResponse = page.waitForResponse((response) =>
+    response.url() === `${apiUrl}/projects/${projectId}/machine-translation-jobs` && response.request().method() === 'POST',
+  )
   await machineDialog.getByRole('button', { name: '翻译未译文案' }).click()
+  const jobResponse = await createJobResponse
+  expect(jobResponse.status(), await jobResponse.text()).toBe(202)
   await expect.poll(async () => {
     const response = await request.get(`${apiUrl}/projects/${projectId}/machine-translation-jobs`, {
       headers: { Authorization: `Bearer ${ownerToken}` },
