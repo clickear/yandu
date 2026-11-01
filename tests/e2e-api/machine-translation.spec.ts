@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test'
 
 test('API workspace tracks a machine translation result and opens its entry', async ({ page }) => {
   let jobCreated = false
+  let retryRequested = false
   const projectId = '42'
   const jobId = '900'
   const now = new Date().toISOString()
@@ -36,25 +37,31 @@ test('API workspace tracks a machine translation result and opens its entry', as
     } else if (request.method() === 'GET' && path === `/projects/${projectId}/translations`) {
       body = {
         page: 1, pageSize: 50, total: 1, allTotal: 1,
-        translated: jobCreated ? 1 : 0, reviewed: 0,
+        translated: retryRequested ? 1 : 0, reviewed: 0,
         items: [{ entryId: '17', key: 'welcome.title', sourceText: '欢迎来到言渡',
-          translation: jobCreated ? 'Welcome to YANDU' : null, sourceRevision: 1,
-          translationVersion: jobCreated ? 1 : null, translationSourceRevision: jobCreated ? 1 : null,
-          status: jobCreated ? 'DRAFT' : null }],
+          translation: retryRequested ? 'Welcome to YANDU' : null, sourceRevision: 1,
+          translationVersion: retryRequested ? 1 : null, translationSourceRevision: retryRequested ? 1 : null,
+          status: retryRequested ? 'DRAFT' : null }],
       }
     } else if (request.method() === 'GET' && path === `/projects/${projectId}/machine-translation-jobs`) {
-      body = jobCreated ? [{ id: jobId, projectId, locale: 'en-US', status: 'COMPLETED',
-        totalCount: 1, completedCount: 1, skippedCount: 0, failedCount: 0,
+      body = jobCreated ? [{ id: jobId, projectId, locale: 'en-US',
+        status: retryRequested ? 'COMPLETED' : 'PARTIAL', totalCount: 1,
+        completedCount: retryRequested ? 1 : 0, skippedCount: 0, failedCount: retryRequested ? 0 : 1,
         createdAt: now, updatedAt: now, error: null }] : []
     } else if (request.method() === 'GET' && path === `/projects/${projectId}/machine-translation-jobs/${jobId}/items`) {
       body = { page: 1, pageSize: 50, total: 1, items: [{ entryId: '17', namespaceId: '7',
-        key: 'welcome.title', status: 'COMPLETED', attempts: 1, error: null }] }
+        key: 'welcome.title', status: retryRequested ? 'COMPLETED' : 'FAILED', attempts: retryRequested ? 2 : 1,
+        error: retryRequested ? null : '临时 provider 故障' }] }
     } else if (request.method() === 'POST' && path === `/projects/${projectId}/machine-translation-jobs`) {
       jobCreated = true
       body = { id: jobId, projectId, locale: 'en-US', status: 'QUEUED', totalCount: 1,
         completedCount: 0, skippedCount: 0, failedCount: 0, createdAt: now, updatedAt: now }
       await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify(body) })
       return
+    } else if (request.method() === 'POST' && path === `/projects/${projectId}/machine-translation-jobs/${jobId}/retry`) {
+      retryRequested = true
+      body = { id: jobId, projectId, locale: 'en-US', status: 'QUEUED', totalCount: 1,
+        completedCount: 0, skippedCount: 0, failedCount: 0, createdAt: now, updatedAt: now }
     } else {
       await route.fulfill({ status: 404, contentType: 'application/problem+json',
         body: JSON.stringify({ title: `Unexpected API request: ${request.method()} ${path}` }) })
@@ -70,8 +77,11 @@ test('API workspace tracks a machine translation result and opens its entry', as
   await page.getByRole('button', { name: '机器翻译' }).click()
   await page.getByRole('button', { name: '翻译未译文案' }).click()
   await expect(page.getByRole('status')).toContainText('机器翻译任务已提交，共 1 条。')
-  await expect(page.getByRole('region', { name: '机器翻译词条结果' })
-    .getByText('已回填草稿')).toBeVisible()
+  const machineDialog = page.getByRole('dialog')
+  await expect(machineDialog).toContainText('部分失败')
+  await expect(machineDialog).toContainText('临时 provider 故障')
+  await machineDialog.getByRole('button', { name: '重试失败项' }).click()
+  await expect(machineDialog.getByText('已回填草稿')).toBeVisible({ timeout: 10_000 })
   await page.getByRole('button', { name: '定位词条' }).click()
   await expect(page.locator('tbody tr').first()).toContainText('Welcome to YANDU')
 })
