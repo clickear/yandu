@@ -38,7 +38,9 @@ yandu:
     api-base-url: http://localhost:8080
     mode: polling # polling, netty, or websocket
     project-id: 1001
-    locale: fr-FR
+    locales:
+      - fr-FR
+      - en-US
     format: json-flat-v1 # or java-properties-v1
     refresh-interval-ms: 60000
     # Netty mode defaults to api-base-url's host and port 9091.
@@ -46,7 +48,17 @@ yandu:
     # websocket-url is optional; defaults to ws(s)://<api-host>/api/v1/public/translations/ws
 ```
 
-For `mode: polling`, only the base dependency is needed. For `mode: netty`, also add `com.yandu:yandu-translation-sync-netty`; for `mode: websocket`, add `com.yandu:yandu-translation-sync-websocket`. Inject `TranslationCatalog` into application services:
+For `mode: polling`, only the base dependency is needed. For `mode: netty`, also add `com.yandu:yandu-translation-sync-netty`; for `mode: websocket`, add `com.yandu:yandu-translation-sync-websocket`.
+
+When sync is enabled, the starter exposes `YanduMessageSource` and, if the application has not defined its own `messageSource`, registers it as Spring's `messageSource`. Configure all desired project locales under `locales`; each locale is synchronized independently and Spring selects the matching snapshot from the request locale. The legacy singular `locale` property remains supported for existing consumers. Application code can use Spring's normal `MessageSource` API:
+
+```java
+String welcome = messageSource.getMessage("welcome", new Object[] {"Ada"}, locale);
+```
+
+The requested locale must match a configured locale, or its language when exactly one configured locale has that language (for example, a `fr` request can use a configured `fr-FR` catalog). Other locales fall through to Spring's normal missing-message behavior. If the application already has its own `messageSource`, inject `YanduMessageSource` directly or compose it with that source.
+
+`TranslationCatalog` remains available for applications that prefer direct lookup:
 
 ```java
 String welcome = translations.require("welcome");

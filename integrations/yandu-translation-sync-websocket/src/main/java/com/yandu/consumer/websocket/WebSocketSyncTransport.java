@@ -122,7 +122,7 @@ public class WebSocketSyncTransport implements TranslationSyncTransport {
             var request = new HashMap<String, Object>();
             request.put("type", "subscribe");
             request.put("projectId", properties.getProjectId());
-            request.put("locale", properties.getLocale());
+            request.put("locale", properties.configuredLocales().get(0));
             request.put("format", properties.getFormat());
             request.put("afterChecksum", currentChecksum.get());
             return request;

@@ -11,8 +11,10 @@ yandu:
     # Optional override. Defaults to wss://yandu.example.com/api/v1/public/translations/ws
     websocket-url: wss://yandu.example.com/api/v1/public/translations/ws
     project-id: 1001
-    locale: fr-FR
+    locales:
+      - fr-FR
+      - en-US
     format: json-flat-v1
 ```
 
-The client sends a JSON subscription after the WebSocket handshake. Release notices and heartbeats cause it to check HTTP metadata, download a changed immutable snapshot, verify SHA-256, and atomically replace the local catalog. No consumer identity token is required for these published-only endpoints.
+The client opens one JSON subscription per configured locale after the WebSocket handshake. Release notices and heartbeats cause it to check HTTP metadata, download a changed immutable snapshot, verify SHA-256, and atomically replace the local catalog. No consumer identity token is required for these published-only endpoints.
