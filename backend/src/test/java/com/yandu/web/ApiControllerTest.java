@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -192,5 +193,16 @@ class ApiControllerTest {
                 .andExpect(jsonPath("$.paths['/api/v1/projects/{projectId}/releases'].post.responses['202']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/project-migrations/previews'].post").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/projects/{projectId}/catalog/entries/{entryId}/translations/{locale}/review'].post").exists());
+    }
+
+    @Test
+    void unauthenticatedApiRequestsReturnProblemDetails() throws Exception {
+        mvc.perform(get("/api/v1/openapi"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("WWW-Authenticate", "Bearer"))
+                .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
+                .andExpect(jsonPath("$.title").value("Authentication required"))
+                .andExpect(jsonPath("$.status").value(401));
     }
 }
