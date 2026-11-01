@@ -54,3 +54,8 @@ server:
 yandu:
   cors:
     allowed-origins: ${YANDU_CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  machine-translation:
+    base-url: ${YANDU_MT_BASE_URL:}
+    api-key: ${YANDU_MT_API_KEY:}
+    timeout-ms: ${YANDU_MT_TIMEOUT_MS:30000}
+    poll-ms: ${YANDU_MT_POLL_MS:2000}

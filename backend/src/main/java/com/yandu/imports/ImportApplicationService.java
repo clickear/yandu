@@ -29,6 +29,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
 import org.springframework.core.task.TaskExecutor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -59,7 +60,8 @@ public class ImportApplicationService {
                                     TranslationApplicationService translations,
                                     WorkspaceApplicationService workspace, ProjectAccessPolicy access,
                                     LongSupplier ids, Clock clock, ObjectMapper json,
-                                    TaskExecutor executor, PlatformTransactionManager transactionManager,
+                                    @Qualifier("importTaskExecutor") TaskExecutor executor,
+                                    PlatformTransactionManager transactionManager,
                                     AuditLog audit) {
         this.imports = Objects.requireNonNull(imports);
         this.catalog = Objects.requireNonNull(catalog);

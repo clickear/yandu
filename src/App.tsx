@@ -79,8 +79,12 @@ import {
   removeRemoteMember,
   leaveRemoteProject,
   archiveRemoteLocale,
+  createMachineTranslationJob,
+  listMachineTranslationJobs,
+  getMachineTranslationJobItems,
+  retryMachineTranslationJob,
 } from './backend'
-import type { ProjectMigration } from './backend'
+import type { MachineTranslationJob, MachineTranslationJobItems, ProjectMigration } from './backend'
 
 function readInitial() {
   try {
@@ -326,7 +330,7 @@ export default function App() {
   const [locale, setLocale] = useState(workspace.projects[0]?.targetLanguages[0] ?? 'en-US')
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('all')
-  const [modal, setModal] = useState<'project' | 'entry' | 'language' | 'import' | 'members' | 'glossary' | 'migration' | null>(null)
+  const [modal, setModal] = useState<'project' | 'entry' | 'language' | 'import' | 'members' | 'glossary' | 'migration' | 'machine-translation' | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [sourceEditingId, setSourceEditingId] = useState<string | null>(null)
   const [sourceText, setSourceText] = useState('')
@@ -353,6 +357,13 @@ export default function App() {
   const [projectRole, setProjectRole] = useState<string | null>(null)
   const [projectMembers, setProjectMembers] = useState<Awaited<ReturnType<typeof listRemoteMembers>>>([])
   const [membersLoading, setMembersLoading] = useState(false)
+  const [machineTranslationJobs, setMachineTranslationJobs] = useState<MachineTranslationJob[]>([])
+  const [machineTranslationJobId, setMachineTranslationJobId] = useState('')
+  const [machineTranslationItems, setMachineTranslationItems] = useState<MachineTranslationJobItems | null>(null)
+  const [machineTranslationItemsPage, setMachineTranslationItemsPage] = useState(1)
+  const [machineTranslationRequestKey, setMachineTranslationRequestKey] = useState('')
+  const [machineTranslationCreating, setMachineTranslationCreating] = useState(false)
+  const machineJobStatusById = useRef(new Map<string, string>())
   const [glossaryTerms, setGlossaryTerms] = useState<Awaited<ReturnType<typeof listRemoteGlossary>>['items']>([])
   const [glossaryLoading, setGlossaryLoading] = useState(false)
   const [localProjects] = useState(readLocalProjectsForMigration)
@@ -418,6 +429,32 @@ export default function App() {
   }, [authStatus, modal, projectId])
 
   useEffect(() => {
+    if (!backendEnabled || authStatus !== 'ready' || modal !== 'machine-translation' || !projectId) return
+    let active = true
+    const refresh = async () => {
+      const jobs = await listMachineTranslationJobs(projectId)
+      if (!active) return
+      setMachineTranslationJobs(jobs)
+      for (const job of jobs) {
+        const previousStatus = machineJobStatusById.current.get(job.id)
+        if (['COMPLETED', 'PARTIAL', 'FAILED'].includes(job.status) && previousStatus !== job.status)
+          setRemoteRefresh((value) => value + 1)
+        machineJobStatusById.current.set(job.id, job.status)
+      }
+      if (machineTranslationJobId) {
+        const page = await getMachineTranslationJobItems(projectId, machineTranslationJobId,
+          machineTranslationItemsPage, 50)
+        if (active) setMachineTranslationItems(page)
+      } else {
+        setMachineTranslationItems(null)
+      }
+    }
+    void refresh().catch((error: unknown) => notify(error instanceof Error ? error.message : '机器翻译任务读取失败。', true))
+    const timer = window.setInterval(() => { void refresh().catch(() => {}) }, 3000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [authStatus, modal, projectId, machineTranslationJobId, machineTranslationItemsPage])
+
+  useEffect(() => {
     if (!backendEnabled || authStatus !== 'ready' || !project) return
     if (project.status === 'ARCHIVED') {
       setRemoteLoading(false)
@@ -478,6 +515,11 @@ export default function App() {
     setImportFile('')
     setImportPreview(null)
     setMigrationPreview(null)
+    if (next === 'machine-translation') {
+      setMachineTranslationJobId('')
+      setMachineTranslationItemsPage(1)
+      setMachineTranslationRequestKey('')
+    }
     if (next === 'migration') {
       const first = localProjects[0]
       setLocalProjectId(first?.id ?? '')
@@ -568,6 +610,7 @@ export default function App() {
   const canManageMembers = projectActive && ['OWNER', 'ADMIN'].includes(projectRole ?? '')
   const canManageProject = ['OWNER', 'ADMIN'].includes(projectRole ?? '')
   const canManageGlossary = projectActive && ['OWNER', 'ADMIN'].includes(projectRole ?? '')
+  const canManageTranslation = projectActive && ['OWNER', 'ADMIN', 'TRANSLATOR'].includes(projectRole ?? '')
 
   useEffect(() => {
     if (!backendEnabled || modal !== 'glossary' || !project) return
@@ -790,6 +833,11 @@ export default function App() {
                   </span>
                   {backendEnabled && (
                     <>
+                      {canManageTranslation && (
+                        <button className="button secondary" onClick={() => openModal('machine-translation')}>
+                          <Sparkles size={15} />机器翻译
+                        </button>
+                      )}
                       {canManageProject && project.status === 'ARCHIVED' && (
                         <button className="button secondary" onClick={async () => {
                           try {
@@ -1354,6 +1402,85 @@ export default function App() {
                 notify('已离开项目。')
               } catch (error) { notify(error instanceof Error ? error.message : '离开项目失败。', true) }
             }}>离开项目</button>
+          )}
+        </Modal>
+      )}
+      {modal === 'machine-translation' && project && backendEnabled && (
+        <Modal title="机器翻译任务" onClose={() => setModal(null)} wide>
+          <p className="modal-copy">
+            对当前目标语言的未译文案生成机器翻译草稿。任务结果会重新检查源文和译文版本；人工已填写的内容不会被覆盖。
+          </p>
+          <div className="inline-actions">
+            <span>目标语言：{languageName(locale)}（{locale}）</span>
+            <button className="button primary" type="button" disabled={machineTranslationCreating}
+              onClick={async () => {
+                const idempotencyKey = machineTranslationRequestKey || crypto.randomUUID()
+                setMachineTranslationRequestKey(idempotencyKey)
+                setMachineTranslationCreating(true)
+                try {
+                  const job = await createMachineTranslationJob(project.id, locale, idempotencyKey)
+                  setMachineTranslationRequestKey('')
+                  setMachineTranslationJobId(job.id)
+                  setMachineTranslationItemsPage(1)
+                  notify(`机器翻译任务已提交，共 ${job.totalCount} 条。`)
+                } catch (error) {
+                  notify(error instanceof Error ? error.message : '机器翻译任务提交失败。', true)
+                } finally { setMachineTranslationCreating(false) }
+              }}>
+              <Sparkles size={16} />{machineTranslationCreating ? '正在提交…' : '翻译未译文案'}
+            </button>
+          </div>
+          <h3>最近任务</h3>
+          {machineTranslationJobs.length === 0 ? (
+            <p className="empty-state">还没有机器翻译任务。请先在服务端配置翻译 provider。</p>
+          ) : (
+            <ul className="job-list">
+              {machineTranslationJobs.map((job) => (
+                <li key={job.id} className={machineTranslationJobId === job.id ? 'selected' : ''}>
+                  <div className="job-summary">
+                    <strong>{languageName(job.locale)} · {job.status === 'QUEUED' ? '排队中' : job.status === 'RUNNING' ? '处理中' : job.status === 'COMPLETED' ? '已完成' : job.status === 'PARTIAL' ? '部分失败' : '失败'}</strong>
+                    <span>成功 {job.completedCount} · 跳过 {job.skippedCount} · 失败 {job.failedCount} / {job.totalCount}</span>
+                    {job.error && <small role="alert">{job.error}</small>}
+                  </div>
+                  <div className="job-actions">
+                    <button type="button" className="button plain" onClick={() => {
+                      setMachineTranslationJobId(job.id)
+                      setMachineTranslationItemsPage(1)
+                    }}>查看词条</button>
+                    {['PARTIAL', 'FAILED'].includes(job.status) && job.failedCount > 0 && (
+                      <button type="button" className="button secondary" onClick={async () => {
+                        try {
+                          await retryMachineTranslationJob(project.id, job.id)
+                          notify('失败词条已重新排队。')
+                        } catch (error) { notify(error instanceof Error ? error.message : '重试失败。', true) }
+                      }}>重试失败项</button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {machineTranslationJobId && machineTranslationItems && (
+            <section className="job-items" aria-label="机器翻译词条结果">
+              <h3>任务词条状态（{machineTranslationItems.total} 条）</h3>
+              <ul>
+                {machineTranslationItems.items.map((item) => (
+                  <li key={item.entryId}>
+                    <code>{item.key}</code>
+                    <span>{item.status === 'QUEUED' ? '排队中' : item.status === 'RUNNING' ? '处理中' : item.status === 'COMPLETED' ? '已回填草稿' : item.status === 'SKIPPED' ? '已跳过' : '失败'}</span>
+                    {item.error && <small>{item.error}</small>}
+                  </li>
+                ))}
+              </ul>
+              <div className="inline-actions">
+                <button className="button plain" type="button" disabled={machineTranslationItemsPage <= 1}
+                  onClick={() => setMachineTranslationItemsPage((page) => Math.max(1, page - 1))}>上一页</button>
+                <span>第 {machineTranslationItemsPage} / {Math.max(1, Math.ceil(machineTranslationItems.total / machineTranslationItems.pageSize))} 页</span>
+                <button className="button plain" type="button"
+                  disabled={machineTranslationItemsPage * machineTranslationItems.pageSize >= machineTranslationItems.total}
+                  onClick={() => setMachineTranslationItemsPage((page) => page + 1)}>下一页</button>
+              </div>
+            </section>
           )}
         </Modal>
       )}

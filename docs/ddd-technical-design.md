@@ -16,7 +16,7 @@
 - 按用户要求优先沿现有模块扩展，不为小操作拆成大量 Java 类或独立测试类；一个业务大模块完成后集中验证。
 - Java 框架和主要领域规则已确认；OIDC 提供方和运行时基础设施仍由部署环境决定。
 
-领域决策已由产品确认，具体规则见[领域词汇表](../GLOSSARY.md)与[ADR-0001–0006](adr/)。本设计文档中的早期示例若与这些 ADR 不一致，以 ADR 为准。
+领域决策已由产品确认，具体规则见[领域词汇表](../GLOSSARY.md)与[ADR-0001–0007](adr/)。本设计文档中的早期示例若与这些 ADR 不一致，以 ADR 为准。
 
 ### 1.1 推荐方案
 
@@ -25,11 +25,11 @@
 | 语言及运行时 | Java 21 LTS；Spring Boot 当前稳定维护线 | 当前工程基线为 Java 21 / Spring Boot 3.5 / Spring Modulith 1.4。 |
 | 结构 | DDD 分层模块化单体；Spring Modulith 用于模块边界验证和文档生成 | 以一个可部署应用和 MySQL 8.0 启动；不先拆微服务。 |
 | HTTP 安全 | Spring Security；OIDC 身份认证，领域应用服务执行项目成员/资源授权 | OIDC 提供者和 token 校验参数由部署环境配置。URL 级授权不能代替资源级授权。 |
-| 数据库 | MySQL 8.0 | 用户确认 MySQL 8.0 或具备切换至 MySQL 8.0 的能力。保留持久化边界和可移植 SQL；未指定并实测第二数据库前不宣称双数据库支持。对象存储仅承载大文件/生成包。 |
+| 数据库 | MySQL 8.0 专用实现 | 用户确认直接使用 MySQL 8.0，不要求数据库切换或跨数据库迁移。Repository 端口服务于 DDD 模块边界和用例，不代表承诺数据库可替换。对象存储仅承载大文件/生成包。 |
 | API | `/api/v1` REST/JSON + OpenAPI | 同步命令用于小型事务；大文件解析、批量导入和资源构建使用异步任务。 |
 | 数据访问 | MyBatis-Plus | Mapper 只存在于 infrastructure；领域聚合不继承 Active Record，不暴露 ORM 懒加载。复杂列表可使用专用查询 Mapper/投影。 |
 | 主键 | 数字 `BIGINT`，应用生成，API 将 ID 编码为十进制字符串 | 用户明确不采用 UUID；当前实现使用 Snowflake，避免依赖数据库自增。上线多实例前固定并验证 worker/node ID 配置。 |
-| 迁移 | Flyway 版本化迁移 | MySQL 主方言脚本单独维护；保持通用列类型、应用生成 ID 和可移植约束。若增加第二种数据库，增加独立方言迁移并运行双数据库集成契约。 |
+| 迁移 | Flyway 版本化迁移 | Flyway 脚本以 MySQL 8.0 为唯一目标，按数据库演进维护版本；不提供第二方言或跨库迁移层。 |
 | 异步 | 导入/发布用业务任务表和 worker；本期不引入 Outbox | 源词条等同步领域变更通过同一事务内的本地模块调用完成；以后若需要跨进程可靠事件，再单独评审 Outbox。 |
 
 ### 实现粒度
@@ -112,7 +112,7 @@ translation/
 
 依赖规则：`web → application → domain`；`infrastructure → application/domain` 实现端口；domain 不依赖 Spring、HTTP、MyBatis-Plus、数据库、文件系统或外部厂商 SDK。其他模块仅依赖模块 `api` 包或调用公开用例接口，不能访问内部 Mapper/表。用 Spring Modulith 的 `ApplicationModules` 结构验证阻止非法包依赖，并产出模块图。源文变更需要更新译文复核状态时，由 Catalog 应用服务在同一个数据库事务内调用 Translation 模块公开用例；本期不做 Outbox，也不把这类强一致规则异步化。
 
-持久化可替换边界：每个模块的 Repository 端口由 MyBatis-Plus 实现，Mapper SQL、DO 与 Flyway schema 脚本留在 `infrastructure/persistence/mysql`。实体主键使用应用生成的正整数 `BIGINT` 雪花 ID，不依赖 `AUTO_INCREMENT`；领域层只依赖 ID 值，不调用 MyBatis-Plus ID API。MyBatis-Plus `ASSIGN_ID` 使用 `IdentifierGenerator`，上线多实例前需配置并验证节点 ID，避免 worker 冲突。JSON API 将 `BIGINT` ID 序列化为十进制字符串，避免 JavaScript `Number` 精度丢失。时间统一 UTC；避免业务 SQL 依赖 MySQL 专有函数、隐式类型转换、JSON 查询语法或自动更新时间。数据库特有分页、全文检索等封装为 adapter capability，不能泄漏到领域规则。切换数据库仍需新增方言迁移、驱动、SQL adapter 和完整持久化契约验证，不能仅替换 JDBC URL。
+持久化边界：每个模块的 Repository 端口由 MyBatis-Plus 实现，Mapper SQL、DO 与 Flyway schema 脚本留在 MySQL 基础设施包。实体主键使用应用生成的正整数 `BIGINT` 雪花 ID；领域层只依赖 ID 值，不调用 MyBatis-Plus ID API。MyBatis-Plus `ASSIGN_ID` 使用 `IdentifierGenerator`，上线多实例前需配置并验证节点 ID，避免 worker 冲突。JSON API 将 `BIGINT` ID 序列化为十进制字符串，避免 JavaScript `Number` 精度丢失。时间统一 UTC。SQL 和迁移按 MySQL 8.0 验证，可使用其适合业务的索引与并发能力；领域层不依赖 MyBatis 类型或 SQL 细节。
 
 ## 4. 聚合、值对象与不变量
 
@@ -230,6 +230,10 @@ sequenceDiagram
 
 Quality 模块对当前 sourceRevision/value/version 计算结构化问题：`ruleId/severity/locale/entryId/key/location/message/expected/actual`。首期支持非空译文和 `{name}` 命名占位符（精确比较名称及出现次数）；`{{`/`}}` 表示字面花括号，其他花括号格式为错误。质量错误阻止送审和发布但不阻止保存草稿。检查随发布执行，发布时的检查结果保存在不可变发布记录中。
 
+### 5.4 机器翻译任务
+
+机器翻译用独立持久化任务和词条项，不使用内存队列或 Outbox。任务创建时固定项目、目标语言、源语言、幂等请求摘要及符合条件的源文/译文版本快照；worker 调用配置的 LibreTranslate-compatible provider。每条结果回填前重新授权、锁定源词条并检查源修订、期望译文版本和当前译文仍为空。任一检查不符就跳过，绝不覆盖人工已保存内容；成功回填为 `DRAFT` 并追加正常译文版本历史。provider 错误形成可见失败项，显式重试只重排失败项，失联的 `RUNNING` 项按上限自动恢复。API key 仅从服务端环境配置读取。
+
 发布命令带 `projectId + locale(s) + format + expectedCatalogRevision + idempotencyKey`。Release 应用服务校验：操作者权限、词条覆盖策略、无处于过期源版本的已批准译文、当前版本全部通过 blocker 质量规则，然后创建快照任务。Worker 写临时对象，校验解析/序列化 fixtures、计算 checksum，最后以不可变 artifact key 标记 READY/PUBLISHED。下载每次重新验证当前访问权限并审计，不把永久公开的对象 URL 暴露给未授权用户。
 
 ## 6. 授权和租户隔离
@@ -270,7 +274,7 @@ Decision = authenticated principal
 
 ## 7. 持久化逻辑模型
 
-数据库用关系表表达强一致业务状态；大文件和构建产物放对象存储，数据库保存不可变 key、摘要和权限范围。为保留数据库切换能力，主数据尽量只用常见的整数/字符串/时间/二进制/文本类型，不依赖 JSON 字段查询、数据库触发器或厂商锁定特性；配置与报告 JSON 作为序列化文本存储，或放入可替换的 JSON adapter。ID 由应用生成，主从迁移脚本和索引语法按数据库方言隔离。
+数据库用关系表表达强一致业务状态；大文件和构建产物放对象存储，数据库保存不可变 key、摘要和权限范围。schema、索引和并发 SQL 直接针对 MySQL 8.0 设计验证，不增加数据库切换或方言适配层。ID 由应用生成；Flyway 管理 MySQL 8.0 版本迁移。
 
 ```mermaid
 erDiagram
@@ -285,6 +289,8 @@ erDiagram
   TRANSLATION ||--o{ TRANSLATION_REVISION : versions
   TRANSLATION ||--o{ REVIEW_DECISION : reviewed_by
   PROJECT ||--o{ IMPORT_JOB : imports
+  PROJECT ||--o{ MACHINE_TRANSLATION_JOB : translates
+  MACHINE_TRANSLATION_JOB ||--o{ MACHINE_TRANSLATION_ITEM : contains
   PROJECT ||--o{ RELEASE : publishes
   RELEASE ||--o{ RELEASE_ITEM : snapshots
   ORGANIZATION ||--o{ AUDIT_EVENT : records
@@ -308,6 +314,8 @@ erDiagram
 | `quality_reports` | 输入版本三元组、ruleSetVersion、status、序列化问题文本；索引版本列，旧报告不可误用于新版本 |
 | `import_jobs` | tenant/project、idempotency key、state、previewHash、fileDigest、progress、retry count |
 | `import_rows` | job、行号、key、action、errors、apply result；按 job 分页 |
+| `machine_translation_jobs` | project/actor 范围幂等键、请求摘要、语言、任务状态和进度计数 |
+| `machine_translation_job_items` | job/entry 复合键、源文本和源/译文版本快照、重试次数与安全错误摘要 |
 | `releases` | tenant/project、locale/format、状态、manifest、checksum、artifact key、rollback reference |
 | `audit_events` | tenant/project、actor、action、resource type/id、correlation ID、safe metadata、time；append-only |
 
@@ -330,6 +338,10 @@ erDiagram
 | `POST .../translations/{locale}/decisions` | 批准/退回 | 决策版本必须匹配；幂等 command id |
 | `POST /api/v1/projects/{projectId}/quality/check` | 单条同步检查或批量任务 | 大批返回 202 job |
 | `POST /api/v1/projects/{projectId}/imports` | 上传并解析 | `Idempotency-Key`; 202 |
+| `POST /api/v1/projects/{projectId}/machine-translation-jobs` | 为当前语言未译项创建机器翻译任务 | `Idempotency-Key`; 202；源/译文版本绑定 |
+| `GET /api/v1/projects/{projectId}/machine-translation-jobs` | 查询最近机器翻译任务 | 成员只读，返回计数和状态 |
+| `GET /api/v1/projects/{projectId}/machine-translation-jobs/{jobId}/items` | 分页读取词条级处理结果 | 重新授权；不返回源文快照 |
+| `POST /api/v1/projects/{projectId}/machine-translation-jobs/{jobId}/retry` | 重试失败项 | 管理翻译权限；只重排失败项 |
 | `GET /api/v1/import-jobs/{jobId}` | 查看任务和预览分页 | 请求时重新授权 |
 | `POST /api/v1/import-jobs/{jobId}/apply` | 应用预览 | 必传 `previewHash` 和幂等键 |
 | `POST /api/v1/projects/{projectId}/releases` | 检查门禁并生成发布 | 202; 固定目标版本/格式 |
@@ -397,7 +409,7 @@ erDiagram
 | --- | --- |
 | Domain 单元测试 | 聚合不变量、状态转移、源版本失效、自审拒绝、不可变发布 |
 | 模块测试 | 模块 API、事件发布/消费、依赖边界校验、模块迁移 |
-| MySQL 8.0 集成测试 | 唯一约束、事务、行版本冲突、源修订原子写入、迁移前后兼容；如增加第二种数据库，对其执行同一契约套件 |
+| MySQL 8.0 集成测试 | 唯一约束、事务、行版本冲突、源修订原子写入和 Flyway 版本升级 |
 | API/安全集成测试 | 所有 endpoint 的项目角色矩阵、跨项目访问、异步 job/artifact 的再授权 |
 | 格式契约 fixtures | UTF-8、转义、Unicode、空译文策略、占位符；Java Properties 对目标 JDK 和消费端实测 |
 | 端到端 | `GOAL.md` 八步真实闭环；不得使用全量 mock 或人工改库 |
@@ -424,4 +436,4 @@ erDiagram
 
 1. OIDC 提供者、audience、云/私有部署和管理员账户恢复方式。
 2. 对象存储、邮件提供方、备份密钥与保留期、灾难恢复责任人。
-3. 第二种数据库产品与版本；指定并运行共同持久化契约之前，不宣称支持 MySQL 8.0 以外的数据库。
+3. MySQL 8.0 部署拓扑、连接池、备份保留期和恢复责任人。

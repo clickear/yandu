@@ -7,6 +7,7 @@ import com.yandu.imports.ImportApplicationService;
 import com.yandu.imports.ProjectMigrationApplicationService;
 import com.yandu.release.ReleaseApplicationService;
 import com.yandu.translation.TranslationApplicationService;
+import com.yandu.translation.MachineTranslationApplicationService;
 import com.yandu.workspace.WorkspaceApplicationService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -37,6 +38,7 @@ public class ApiController {
     private final WorkspaceApplicationService workspace;
     private final CatalogEntryApplicationService catalog;
     private final TranslationApplicationService translations;
+    private final MachineTranslationApplicationService machineTranslations;
     private final ReleaseApplicationService releases;
     private final ImportApplicationService imports;
     private final ProjectMigrationApplicationService migrations;
@@ -45,6 +47,7 @@ public class ApiController {
     public ApiController(CurrentActor actors, WorkspaceApplicationService workspace,
                          CatalogEntryApplicationService catalog,
                          TranslationApplicationService translations,
+                         MachineTranslationApplicationService machineTranslations,
                          ReleaseApplicationService releases,
                          ImportApplicationService imports,
                          ProjectMigrationApplicationService migrations,
@@ -53,6 +56,7 @@ public class ApiController {
         this.workspace = workspace;
         this.catalog = catalog;
         this.translations = translations;
+        this.machineTranslations = machineTranslations;
         this.releases = releases;
         this.imports = imports;
         this.migrations = migrations;
@@ -136,6 +140,47 @@ public class ApiController {
                                          @Valid @RequestBody TransferOwnershipBody body) {
         workspace.transferOwnership(new WorkspaceApplicationService.TransferOwnership(
                 actors.resolve(principal), projectId, positiveId(body.newOwnerId(), "newOwnerId")));
+    }
+
+    @PostMapping("/projects/{projectId}/machine-translation-jobs")
+    public ResponseEntity<MachineTranslationApplicationService.JobView> createMachineTranslationJob(
+            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody CreateMachineTranslationJobBody body) {
+        var job = machineTranslations.create(new MachineTranslationApplicationService.CreateJob(
+                actors.resolve(principal), projectId, body.locale(), idempotencyKey,
+                body.entryIds() == null ? null : body.entryIds().stream()
+                        .map(id -> positiveId(id, "entryId")).toList()));
+        return ResponseEntity.accepted().body(job);
+    }
+
+    @GetMapping("/projects/{projectId}/machine-translation-jobs")
+    public java.util.List<MachineTranslationApplicationService.JobView> machineTranslationJobs(
+            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId) {
+        return machineTranslations.list(actors.resolve(principal), projectId);
+    }
+
+    @GetMapping("/projects/{projectId}/machine-translation-jobs/{jobId}")
+    public MachineTranslationApplicationService.JobView machineTranslationJob(
+            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId, @PathVariable long jobId) {
+        return machineTranslations.get(actors.resolve(principal), projectId, jobId);
+    }
+
+    @GetMapping("/projects/{projectId}/machine-translation-jobs/{jobId}/items")
+    public MachineTranslationApplicationService.JobItemPage machineTranslationJobItems(
+            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId, @PathVariable long jobId,
+            @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "50") int pageSize) {
+        if (page < 1 || pageSize < 1 || pageSize > 200) {
+            throw new IllegalArgumentException("page must be positive and pageSize must be between 1 and 200");
+        }
+        return machineTranslations.items(actors.resolve(principal), projectId, jobId, page, pageSize);
+    }
+
+    @PostMapping("/projects/{projectId}/machine-translation-jobs/{jobId}/retry")
+    public MachineTranslationApplicationService.JobView retryMachineTranslationJob(
+            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId, @PathVariable long jobId) {
+        return machineTranslations.retry(new MachineTranslationApplicationService.RetryJob(
+                actors.resolve(principal), projectId, jobId));
     }
 
     @PostMapping("/projects/{projectId}/archive")
@@ -521,6 +566,8 @@ public class ApiController {
 
     public record ChangeMemberRoleBody(@jakarta.validation.constraints.NotNull WorkspaceApplicationService.MemberRole role) { }
     public record TransferOwnershipBody(@NotBlank String newOwnerId) { }
+    public record CreateMachineTranslationJobBody(@NotBlank String locale,
+                                                   java.util.List<String> entryIds) { }
 
     public record CurrentActorView(String id) { }
 

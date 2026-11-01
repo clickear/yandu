@@ -6,6 +6,9 @@ import com.yandu.translation.TranslationApplicationService.TargetLocaleNotConfig
 import com.yandu.translation.TranslationApplicationService.TranslationNotFoundException;
 import com.yandu.translation.TranslationApplicationService.TranslationVersionConflictException;
 import com.yandu.translation.TranslationApplicationService.QualityGateException;
+import com.yandu.translation.MachineTranslationApplicationService.JobNotFoundException;
+import com.yandu.translation.MachineTranslationApplicationService.JobStateConflictException;
+import com.yandu.translation.MachineTranslationApplicationService.ProviderNotConfiguredException;
 import com.yandu.release.ReleaseApplicationService.ReleaseGateException;
 import com.yandu.release.ReleaseApplicationService.ReleaseNotFoundException;
 import com.yandu.imports.ImportApplicationService.IdempotencyConflictException;
@@ -34,7 +37,7 @@ public class ApiExceptionHandler {
     @ExceptionHandler({CatalogEntryNotFoundException.class, ProjectNotFoundException.class,
             UserNotFoundException.class, TranslationNotFoundException.class,
             ReleaseNotFoundException.class, ImportJobNotFoundException.class,
-            MigrationNotFoundException.class})
+            MigrationNotFoundException.class, JobNotFoundException.class})
     ProblemDetail notFound(RuntimeException exception) {
         return problem(HttpStatus.NOT_FOUND, "Resource not found", exception.getMessage());
     }
@@ -45,6 +48,17 @@ public class ApiExceptionHandler {
         detail.setProperty("expectedRevision", exception.expectedRevision());
         detail.setProperty("actualRevision", exception.actualRevision());
         return detail;
+    }
+
+    @ExceptionHandler({com.yandu.translation.MachineTranslationApplicationService.IdempotencyConflictException.class,
+            JobStateConflictException.class})
+    ProblemDetail jobConflict(RuntimeException exception) {
+        return problem(HttpStatus.CONFLICT, "Machine translation job conflict", exception.getMessage());
+    }
+
+    @ExceptionHandler(ProviderNotConfiguredException.class)
+    ProblemDetail providerUnavailable(ProviderNotConfiguredException exception) {
+        return problem(HttpStatus.SERVICE_UNAVAILABLE, "Machine translation is not configured", exception.getMessage());
     }
 
     @ExceptionHandler(TranslationVersionConflictException.class)

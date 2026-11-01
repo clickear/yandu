@@ -110,6 +110,15 @@ public class CatalogEntryApplicationService {
                 .sourceRevision();
     }
 
+    /** Locks the active source row through the caller's transaction while a machine result is applied. */
+    @Transactional
+    public long lockCurrentSourceRevision(long actorId, long projectId, long entryId) {
+        accessPolicy.requireCanReadCatalog(actorId, projectId);
+        return entries.findForSourceEdit(projectId, entryId)
+                .orElseThrow(() -> new CatalogEntryNotFoundException(entryId))
+                .sourceRevision();
+    }
+
     @Transactional(readOnly = true)
     public EntryView get(long actorId, long projectId, long entryId) {
         accessPolicy.requireCanReadCatalog(actorId, projectId);

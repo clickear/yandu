@@ -13,6 +13,7 @@ import com.yandu.identity.CurrentActor;
 import com.yandu.workspace.WorkspaceApplicationService;
 import com.yandu.catalog.CatalogEntryApplicationService;
 import com.yandu.translation.TranslationApplicationService;
+import com.yandu.translation.MachineTranslationApplicationService;
 import com.yandu.release.ReleaseApplicationService;
 import com.yandu.imports.ImportApplicationService;
 import com.yandu.imports.ProjectMigrationApplicationService;
@@ -48,6 +49,9 @@ class ApiControllerTest {
 
     @MockitoBean
     private TranslationApplicationService translations;
+
+    @MockitoBean
+    private MachineTranslationApplicationService machineTranslations;
 
     @MockitoBean
     private ReleaseApplicationService releases;

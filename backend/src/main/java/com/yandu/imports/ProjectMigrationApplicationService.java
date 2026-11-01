@@ -22,6 +22,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.LongSupplier;
 import org.springframework.core.task.TaskExecutor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -51,7 +52,8 @@ public class ProjectMigrationApplicationService {
     public ProjectMigrationApplicationService(ProjectMigrations migrations,
             WorkspaceApplicationService workspace, CatalogEntryApplicationService catalog,
             TranslationApplicationService translations, LongSupplier ids, Clock clock,
-            ObjectMapper json, TaskExecutor executor, PlatformTransactionManager transactionManager) {
+            ObjectMapper json, @Qualifier("importTaskExecutor") TaskExecutor executor,
+            PlatformTransactionManager transactionManager) {
         this.migrations = Objects.requireNonNull(migrations);
         this.workspace = Objects.requireNonNull(workspace);
         this.catalog = Objects.requireNonNull(catalog);

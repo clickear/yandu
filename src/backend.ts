@@ -158,6 +158,50 @@ export function archiveRemoteLocale(projectId: string, locale: string) {
   })
 }
 
+export type MachineTranslationJob = {
+  id: string
+  projectId: string
+  locale: string
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'PARTIAL' | 'FAILED'
+  totalCount: number
+  completedCount: number
+  skippedCount: number
+  failedCount: number
+  createdAt: string
+  updatedAt: string
+  error?: string | null
+}
+
+export type MachineTranslationJobItems = {
+  page: number
+  pageSize: number
+  total: number
+  items: { entryId: string; key: string; status: string; attempts: number; error?: string | null }[]
+}
+
+export function createMachineTranslationJob(projectId: string, locale: string, idempotencyKey: string) {
+  return request<MachineTranslationJob>(`/projects/${projectId}/machine-translation-jobs`, {
+    method: 'POST', headers: { 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ locale }),
+  })
+}
+
+export function listMachineTranslationJobs(projectId: string) {
+  return request<MachineTranslationJob[]>(`/projects/${projectId}/machine-translation-jobs`)
+}
+
+export function getMachineTranslationJobItems(projectId: string, jobId: string, page = 1, pageSize = 50) {
+  return request<MachineTranslationJobItems>(
+    `/projects/${projectId}/machine-translation-jobs/${jobId}/items?page=${page}&pageSize=${pageSize}`,
+  )
+}
+
+export function retryMachineTranslationJob(projectId: string, jobId: string) {
+  return request<MachineTranslationJob>(
+    `/projects/${projectId}/machine-translation-jobs/${jobId}/retry`, { method: 'POST' },
+  )
+}
+
 export function addRemoteEntry(project: Project, key: string, sourceText: string) {
   return request(`/projects/${project.id}/catalog/entries`, {
     method: 'POST',

@@ -18,6 +18,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.dao.DataIntegrityViolationException;
 
 /** Coordinates translation editing, review, and synchronous source-revision invalidation. */
 @Service
@@ -82,6 +83,64 @@ public class TranslationApplicationService {
                             "status", translation.status().name()));
         }
         return view(translation, sourceRevision);
+    }
+
+    /** Applies provider output only while the source and translation still match the task snapshot. */
+    @Transactional
+    public MachineDraftResult saveMachineDraft(MachineDraft command) {
+        access.requireCanManageTranslation(command.actorId(), command.projectId());
+        var locale = Translation.normalizeLocale(command.locale());
+        requireTargetLocale(command.actorId(), command.projectId(), locale);
+        var currentSourceRevision = catalog.lockCurrentSourceRevision(
+                command.actorId(), command.projectId(), command.entryId());
+        if (currentSourceRevision != command.expectedSourceRevision()) {
+            return MachineDraftResult.SOURCE_CHANGED;
+        }
+        var existing = translations.find(command.projectId(), command.entryId(), locale);
+        if (existing.isPresent()) {
+            var translation = existing.get();
+            if (command.expectedTranslationVersion() == null
+                    || translation.version() != command.expectedTranslationVersion()
+                    || !translation.value().isBlank()) {
+                return MachineDraftResult.TRANSLATION_CHANGED;
+            }
+            var expectedVersion = translation.version();
+            try {
+                translation.save(expectedVersion, command.expectedSourceRevision(),
+                        currentSourceRevision, command.value(), command.actorId());
+            } catch (Translation.VersionConflictException conflict) {
+                return MachineDraftResult.TRANSLATION_CHANGED;
+            }
+            try {
+                translations.update(translation, expectedVersion, clock.instant());
+            } catch (IllegalStateException conflict) {
+                return MachineDraftResult.TRANSLATION_CHANGED;
+            }
+            var now = clock.instant();
+            translations.appendRevision(translation, command.actorId(), now);
+            audit.record(command.projectId(), command.actorId(), "TRANSLATION_MACHINE_GENERATED",
+                    "TRANSLATION", translation.id(), java.util.Map.of("entryId", command.entryId(),
+                            "locale", locale, "version", translation.version(),
+                            "sourceRevision", currentSourceRevision));
+            return MachineDraftResult.APPLIED;
+        }
+        if (command.expectedTranslationVersion() != null) return MachineDraftResult.TRANSLATION_CHANGED;
+        var translation = Translation.newDraft(ids.getAsLong(), command.projectId(),
+                command.entryId(), locale);
+        translation.save(0, command.expectedSourceRevision(), currentSourceRevision,
+                command.value(), command.actorId());
+        var now = clock.instant();
+        try {
+            translations.insert(translation, now);
+        } catch (DataIntegrityViolationException concurrentInsert) {
+            return MachineDraftResult.TRANSLATION_CHANGED;
+        }
+        translations.appendRevision(translation, command.actorId(), now);
+        audit.record(command.projectId(), command.actorId(), "TRANSLATION_MACHINE_GENERATED",
+                "TRANSLATION", translation.id(), java.util.Map.of("entryId", command.entryId(),
+                        "locale", locale, "version", translation.version(),
+                        "sourceRevision", currentSourceRevision));
+        return MachineDraftResult.APPLIED;
     }
 
     /** Copies one local value as a fresh server-side draft while a project is migrating. */
@@ -290,6 +349,12 @@ public class TranslationApplicationService {
             if (expectedVersion < 0) throw new IllegalArgumentException("expectedVersion cannot be negative");
         }
     }
+
+    public record MachineDraft(long actorId, long projectId, long entryId, String locale,
+                               long expectedSourceRevision, Long expectedTranslationVersion,
+                               String value) { }
+
+    public enum MachineDraftResult { APPLIED, SOURCE_CHANGED, TRANSLATION_CHANGED }
 
     public record ReadTranslation(long actorId, long projectId, long entryId, String locale) {
         public ReadTranslation { requireIds(actorId, projectId, entryId); }

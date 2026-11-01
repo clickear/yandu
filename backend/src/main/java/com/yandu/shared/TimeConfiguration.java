@@ -27,4 +27,16 @@ public class TimeConfiguration {
         return executor;
     }
 
+    @Bean
+    ThreadPoolTaskExecutor machineTranslationTaskExecutor() {
+        var executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(4);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(0);
+        executor.setThreadNamePrefix("yandu-machine-translation-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(60);
+        return executor;
+    }
+
 }
