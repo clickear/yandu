@@ -36,7 +36,9 @@ function oidcUser(accessToken: string, subject: string) {
 test('MySQL-backed workspace completes machine translation, review, and release', async ({ page, request }) => {
   const ownerToken = issueAccessToken('browser-e2e-owner')
   const reviewerToken = issueAccessToken('browser-e2e-reviewer')
-  await page.addInitScript(({ key, user }) => sessionStorage.setItem(key, JSON.stringify(user)), {
+  await page.addInitScript(({ key, user }) => {
+    if (!sessionStorage.getItem(key)) sessionStorage.setItem(key, JSON.stringify(user))
+  }, {
     key: storageKey,
     user: oidcUser(ownerToken, 'browser-e2e-owner'),
   })
