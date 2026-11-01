@@ -112,7 +112,8 @@ test('MySQL-backed workspace completes machine translation, review, and release'
       && response.request().method() === 'POST',
   )
   await page.getByRole('dialog').getByRole('button', { name: '审核通过' }).click()
-  expect((await reviewResponse).ok()).toBeTruthy()
+  const approvedResponse = await reviewResponse
+  expect(approvedResponse.status(), await approvedResponse.text()).toBe(200)
   await expect(page.locator('tbody tr').first()).toContainText('已审核')
 
   await page.evaluate(({ key, user }) => sessionStorage.setItem(key, JSON.stringify(user)), {
