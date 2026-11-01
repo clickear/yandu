@@ -74,6 +74,22 @@ class MachineTranslationApplicationServiceTest {
     }
 
     @Test
+    void includesNamespaceIdWhenListingTaskItemsForWorkspaceNavigation() {
+        when(jobs.find(101L, 900L)).thenReturn(Optional.of(new MachineTranslationRepository.Job(
+                900L, 101L, "en-US", "COMPLETED", 1, 1, 0, 0, 11L,
+                "request-hash", Instant.EPOCH, Instant.EPOCH, null)));
+        when(jobs.items(101L, 900L, 0, 50)).thenReturn(List.of(new MachineTranslationRepository.JobItem(
+                900L, 101L, "zh-CN", "en-US", 501L, 301L, "home.title",
+                "欢迎", 1, null, 11L, 1, "COMPLETED", null)));
+        when(jobs.itemCount(101L, 900L)).thenReturn(1L);
+
+        var page = service.items(11L, 101L, 900L, 1, 50);
+
+        assertEquals("301", page.items().getFirst().namespaceId());
+        assertEquals("home.title", page.items().getFirst().key());
+    }
+
+    @Test
     void libreTranslateAdapterSendsLocaleLanguageCodesAndParsesTheResponse() throws Exception {
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         var requestBody = new AtomicReference<String>();

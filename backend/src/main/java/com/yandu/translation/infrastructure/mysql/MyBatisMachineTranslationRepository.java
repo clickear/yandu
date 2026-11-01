@@ -125,6 +125,7 @@ public class MyBatisMachineTranslationRepository implements MachineTranslationRe
 
     private static JobItem toItem(MachineTranslationMapper.ItemRow row) {
         return new JobItem(row.getJobId(), row.getProjectId(), row.getSourceLocale(), row.getTargetLocale(), row.getEntryId(),
+                row.getNamespaceId(),
                 row.getEntryKey(), row.getSourceText(), row.getSourceRevision(),
                 row.getExpectedTranslationVersion(), row.getActorId(), row.getAttempts(),
                 row.getStatus(), row.getError());

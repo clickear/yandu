@@ -1798,7 +1798,7 @@ th > span:not(.sr-only) {
   border-bottom: 1px solid #f0ebf4;
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(140px, 1fr) auto minmax(120px, 1fr);
+  grid-template-columns: minmax(140px, 1fr) auto minmax(120px, 1fr) auto;
   padding: 8px 4px;
 }
 .job-items li span,
@@ -1806,6 +1806,9 @@ th > span:not(.sr-only) {
 .inline-actions > span {
   color: #776b83;
   font-size: 12px;
+}
+.job-items li small {
+  grid-column: 1 / -1;
 }
 .inline-actions {
   justify-content: space-between;
@@ -1832,6 +1835,10 @@ th > span:not(.sr-only) {
   }
   .job-items li {
     grid-template-columns: minmax(100px, 1fr) auto;
+  }
+  .job-items li .button {
+    grid-column: 1 / -1;
+    justify-self: start;
   }
   .job-items li small {
     grid-column: 1 / -1;

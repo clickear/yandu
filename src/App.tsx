@@ -1756,6 +1756,15 @@ export default function App() {
                     <code>{item.key}</code>
                     <span>{item.status === 'QUEUED' ? '排队中' : item.status === 'RUNNING' ? '处理中' : item.status === 'COMPLETED' ? '已回填草稿' : item.status === 'SKIPPED' ? '已跳过' : '失败'}</span>
                     {item.error && <small>{item.error}</small>}
+                    <button className="button plain" type="button" onClick={() => {
+                      const job = machineTranslationJobs.find((candidate) => candidate.id === machineTranslationJobId)
+                      if (job) setLocale(job.locale)
+                      setNamespaceId(item.namespaceId)
+                      setQuery(item.key)
+                      setFilter('all')
+                      setRemotePage(1)
+                      setModal(null)
+                    }}>定位词条</button>
                   </li>
                 ))}
               </ul>

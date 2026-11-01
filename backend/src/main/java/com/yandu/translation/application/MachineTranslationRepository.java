@@ -43,7 +43,7 @@ public interface MachineTranslationRepository {
                Instant createdAt, Instant updatedAt, String error) { }
 
     record JobItem(long jobId, long projectId, String sourceLocale, String locale, long entryId,
-                   String entryKey, String sourceText, long sourceRevision,
+                   Long namespaceId, String entryKey, String sourceText, long sourceRevision,
                    Long expectedTranslationVersion, long actorId, int attempts,
                    String status, String error) { }
 }

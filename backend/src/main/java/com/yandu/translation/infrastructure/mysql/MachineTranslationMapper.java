@@ -97,11 +97,14 @@ public interface MachineTranslationMapper extends BaseMapper<MachineTranslationM
     long countActiveEntries(@Param("projectId") long projectId, @Param("entryIds") List<Long> entryIds);
 
     @Select("""
+            /* Result navigation follows the current key and namespace if the entry moved after queuing. */
             SELECT i.job_id, i.project_id, j.source_locale, j.target_locale, i.entry_id,
-                   i.entry_key, i.source_text, i.source_revision, i.expected_translation_version,
+                   e.namespace_id,
+                   e.entry_key AS entry_key, i.source_text, i.source_revision, i.expected_translation_version,
                    j.created_by AS actor_id, i.attempts, i.status, i.error
               FROM machine_translation_job_items i
               JOIN machine_translation_jobs j ON j.project_id = i.project_id AND j.id = i.job_id
+              JOIN catalog_entries e ON e.project_id = i.project_id AND e.id = i.entry_id
              WHERE i.project_id = #{projectId} AND i.job_id = #{jobId}
              ORDER BY i.entry_id
              LIMIT #{limit} OFFSET #{offset}
@@ -214,6 +217,7 @@ public interface MachineTranslationMapper extends BaseMapper<MachineTranslationM
         private String sourceLocale;
         private String targetLocale;
         private Long entryId;
+        private Long namespaceId;
         private String entryKey;
         private String sourceText;
         private Long sourceRevision;

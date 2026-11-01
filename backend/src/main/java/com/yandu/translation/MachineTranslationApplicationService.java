@@ -126,7 +126,8 @@ public class MachineTranslationApplicationService {
         find(projectId, jobId);
         int offset = Math.multiplyExact(page - 1, pageSize);
         var items = jobs.items(projectId, jobId, offset, pageSize).stream()
-                .map(item -> new JobItemView(Long.toString(item.entryId()), item.entryKey(),
+                .map(item -> new JobItemView(Long.toString(item.entryId()),
+                        Long.toString(item.namespaceId()), item.entryKey(),
                         item.status(), item.attempts(), item.error())).toList();
         return new JobItemPage(page, pageSize, jobs.itemCount(projectId, jobId), items);
     }
@@ -252,7 +253,8 @@ public class MachineTranslationApplicationService {
     public record JobView(String id, String projectId, String locale, String status, long totalCount,
                           long completedCount, long skippedCount, long failedCount,
                           java.time.Instant createdAt, java.time.Instant updatedAt, String error) { }
-    public record JobItemView(String entryId, String key, String status, int attempts, String error) { }
+    public record JobItemView(String entryId, String namespaceId, String key, String status,
+                              int attempts, String error) { }
     public record JobItemPage(int page, int pageSize, long total, List<JobItemView> items) { }
 
     public static final class ProviderNotConfiguredException extends RuntimeException {

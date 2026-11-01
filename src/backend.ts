@@ -197,7 +197,7 @@ export type MachineTranslationJobItems = {
   page: number
   pageSize: number
   total: number
-  items: { entryId: string; key: string; status: string; attempts: number; error?: string | null }[]
+  items: { entryId: string; namespaceId: string; key: string; status: string; attempts: number; error?: string | null }[]
 }
 
 export function createMachineTranslationJob(projectId: string, locale: string, idempotencyKey: string) {

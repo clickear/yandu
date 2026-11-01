@@ -342,7 +342,7 @@ erDiagram
 | `POST /api/v1/projects/{projectId}/imports` | 上传并解析 | `Idempotency-Key`; 202 |
 | `POST /api/v1/projects/{projectId}/machine-translation-jobs` | 为当前语言未译项创建机器翻译任务 | `Idempotency-Key`; 202；源/译文版本绑定 |
 | `GET /api/v1/projects/{projectId}/machine-translation-jobs` | 查询最近机器翻译任务 | 成员只读，返回计数和状态 |
-| `GET /api/v1/projects/{projectId}/machine-translation-jobs/{jobId}/items` | 分页读取词条级处理结果 | 重新授权；不返回源文快照 |
+| `GET /api/v1/projects/{projectId}/machine-translation-jobs/{jobId}/items` | 分页读取词条级处理结果 | 重新授权；不返回源文快照；返回当前词条键和命名空间标识供工作台定位 |
 | `POST /api/v1/projects/{projectId}/machine-translation-jobs/{jobId}/retry` | 重试失败项 | 管理翻译权限；只重排失败项 |
 | `GET /api/v1/import-jobs/{jobId}` | 查看任务和预览分页 | 请求时重新授权 |
 | `POST /api/v1/import-jobs/{jobId}/apply` | 应用预览 | 必传 `previewHash` 和幂等键 |
