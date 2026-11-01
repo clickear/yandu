@@ -9,6 +9,7 @@ import static org.mockito.BDDMockito.given;
 import com.yandu.catalog.CatalogEntryApplicationService;
 import com.yandu.audit.AuditLog;
 import com.yandu.translation.application.TranslationRepository;
+import com.yandu.translation.domain.MachineTranslationJob;
 import com.yandu.translation.domain.Translation;
 import com.yandu.workspace.ProjectAccessPolicy;
 import com.yandu.workspace.WorkspaceApplicationService;
@@ -25,6 +26,28 @@ class TranslationTest {
     private TranslationRepository repository;
     private WorkspaceApplicationService workspace;
     private TranslationApplicationService service;
+
+    @Test
+    void machineTranslationJobDerivesProgressStateFromItemCounts() {
+        var job = new MachineTranslationJob(900L, 4);
+        job.reconcile(new MachineTranslationJob.ItemCounts(0, 1, 2, 0, 1, "provider error"));
+
+        assertEquals(MachineTranslationJob.Status.RUNNING, job.status());
+        assertEquals(2, job.completedCount());
+        assertEquals(1, job.failedCount());
+        assertEquals("provider error", job.error());
+
+        job.reconcile(new MachineTranslationJob.ItemCounts(0, 0, 2, 0, 2, "provider error"));
+        assertEquals(MachineTranslationJob.Status.PARTIAL, job.status());
+    }
+
+    @Test
+    void machineTranslationJobRejectsProgressThatDoesNotAccountForEveryItem() {
+        var job = new MachineTranslationJob(900L, 2);
+
+        assertThrows(IllegalStateException.class, () -> job.reconcile(
+                new MachineTranslationJob.ItemCounts(0, 0, 1, 0, 0, null)));
+    }
 
     @BeforeEach
     void setUpQualityService() {

@@ -1,6 +1,7 @@
 package com.yandu.translation.infrastructure.mysql;
 
 import com.yandu.translation.application.MachineTranslationRepository;
+import com.yandu.translation.domain.MachineTranslationJob;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -35,7 +36,7 @@ public class MyBatisMachineTranslationRepository implements MachineTranslationRe
         mapper.insertEligibleItems(draft.id(), draft.projectId(), draft.locale(),
                 draft.entryIds(), draft.createdAt());
         mapper.setInitialTotal(draft.id(), draft.createdAt());
-        mapper.completeEmptyJob(draft.id(), draft.createdAt());
+        refreshJob(draft.id(), draft.createdAt());
         return new JobCreation(toJob(mapper.findJob(draft.projectId(), draft.id())), true);
     }
 
@@ -72,7 +73,7 @@ public class MyBatisMachineTranslationRepository implements MachineTranslationRe
     public int retryFailed(long projectId, long jobId, Instant updatedAt) {
         requireJobLock(jobId);
         var changed = mapper.retryFailed(projectId, jobId, updatedAt);
-        if (changed > 0) mapper.refreshJob(jobId, updatedAt);
+        if (changed > 0) refreshJob(jobId, updatedAt);
         return changed;
     }
 
@@ -83,7 +84,7 @@ public class MyBatisMachineTranslationRepository implements MachineTranslationRe
         for (var jobId : mapper.findStaleJobIds(staleBefore)) {
             if (mapper.lockJobForItemTransition(jobId) == null) continue;
             if (mapper.recoverStaleItems(jobId, staleBefore, updatedAt) > 0) {
-                mapper.refreshJob(jobId, updatedAt);
+                refreshJob(jobId, updatedAt);
             }
         }
     }
@@ -97,7 +98,7 @@ public class MyBatisMachineTranslationRepository implements MachineTranslationRe
                 || mapper.claimItem(item.getJobId(), item.getEntryId(), updatedAt) != 1) {
             return Optional.empty();
         }
-        mapper.refreshJob(item.getJobId(), updatedAt);
+        refreshJob(item.getJobId(), updatedAt);
         item.setAttempts(item.getAttempts() + 1);
         return Optional.of(toItem(item));
     }
@@ -107,7 +108,7 @@ public class MyBatisMachineTranslationRepository implements MachineTranslationRe
     public void releaseClaim(JobItem item, Instant updatedAt) {
         if (mapper.lockJobForItemTransition(item.jobId()) == null) return;
         if (mapper.releaseClaim(item.jobId(), item.entryId(), item.attempts(), updatedAt) == 1) {
-            mapper.refreshJob(item.jobId(), updatedAt);
+            refreshJob(item.jobId(), updatedAt);
         }
     }
 
@@ -124,13 +125,26 @@ public class MyBatisMachineTranslationRepository implements MachineTranslationRe
         // Lock the parent first so parallel workers recalculate one job's counters in a stable order.
         if (mapper.lockJobForItemTransition(jobId) == null) return false;
         if (mapper.completeItem(jobId, entryId, attempt, status, message, updatedAt) != 1) return false;
-        mapper.refreshJob(jobId, updatedAt);
+        refreshJob(jobId, updatedAt);
         return true;
     }
 
     private void requireJobLock(long jobId) {
         if (mapper.lockJobForItemTransition(jobId) == null) {
             throw new IllegalStateException("Machine translation job no longer exists");
+        }
+    }
+
+    private void refreshJob(long jobId, Instant updatedAt) {
+        var counts = mapper.findItemCounts(jobId);
+        if (counts == null) throw new IllegalStateException("Machine translation job no longer exists");
+        var job = new MachineTranslationJob(jobId, counts.getTotalCount());
+        job.reconcile(new MachineTranslationJob.ItemCounts(
+                counts.getQueuedCount(), counts.getRunningCount(), counts.getCompletedCount(),
+                counts.getSkippedCount(), counts.getFailedCount(), counts.getFirstFailure()));
+        if (mapper.updateJobProgress(job.id(), job.completedCount(), job.skippedCount(), job.failedCount(),
+                job.status().name(), job.error(), updatedAt) != 1) {
+            throw new IllegalStateException("Machine translation job progress could not be updated");
         }
     }
 

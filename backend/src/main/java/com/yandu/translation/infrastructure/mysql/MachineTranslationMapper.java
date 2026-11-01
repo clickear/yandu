@@ -77,10 +77,6 @@ public interface MachineTranslationMapper extends BaseMapper<MachineTranslationM
             + "WHERE id = #{jobId}")
     int setInitialTotal(@Param("jobId") long jobId, @Param("updatedAt") Instant updatedAt);
 
-    @Update("UPDATE machine_translation_jobs SET status = 'COMPLETED', updated_at = #{updatedAt} "
-            + "WHERE id = #{jobId} AND total_count = 0")
-    int completeEmptyJob(@Param("jobId") long jobId, @Param("updatedAt") Instant updatedAt);
-
     @Select("SELECT * FROM machine_translation_jobs WHERE project_id = #{projectId} AND id = #{jobId}")
     JobRow findJob(@Param("projectId") long projectId, @Param("jobId") long jobId);
 
@@ -179,23 +175,33 @@ public interface MachineTranslationMapper extends BaseMapper<MachineTranslationM
     @Select("SELECT id FROM machine_translation_jobs WHERE id = #{jobId} FOR UPDATE")
     Long lockJobForItemTransition(@Param("jobId") long jobId);
 
-    @Update("""
-            UPDATE machine_translation_jobs j
-               SET j.completed_count = (SELECT COUNT(*) FROM machine_translation_job_items i WHERE i.job_id = j.id AND i.status = 'COMPLETED'),
-                   j.skipped_count = (SELECT COUNT(*) FROM machine_translation_job_items i WHERE i.job_id = j.id AND i.status = 'SKIPPED'),
-                   j.failed_count = (SELECT COUNT(*) FROM machine_translation_job_items i WHERE i.job_id = j.id AND i.status = 'FAILED'),
-                   j.status = CASE
-                       WHEN EXISTS (SELECT 1 FROM machine_translation_job_items i WHERE i.job_id = j.id AND i.status = 'RUNNING') THEN 'RUNNING'
-                       WHEN EXISTS (SELECT 1 FROM machine_translation_job_items i WHERE i.job_id = j.id AND i.status = 'QUEUED') THEN 'QUEUED'
-                       WHEN EXISTS (SELECT 1 FROM machine_translation_job_items i WHERE i.job_id = j.id AND i.status = 'FAILED')
-                           AND EXISTS (SELECT 1 FROM machine_translation_job_items i WHERE i.job_id = j.id AND i.status IN ('COMPLETED', 'SKIPPED')) THEN 'PARTIAL'
-                       WHEN EXISTS (SELECT 1 FROM machine_translation_job_items i WHERE i.job_id = j.id AND i.status = 'FAILED') THEN 'FAILED'
-                       ELSE 'COMPLETED' END,
-                   j.error = (SELECT i.error FROM machine_translation_job_items i WHERE i.job_id = j.id AND i.status = 'FAILED' ORDER BY i.entry_id LIMIT 1),
-                   j.updated_at = #{updatedAt}
+    @Select("""
+            SELECT j.total_count,
+                   COUNT(CASE WHEN i.status = 'QUEUED' THEN 1 END) AS queued_count,
+                   COUNT(CASE WHEN i.status = 'RUNNING' THEN 1 END) AS running_count,
+                   COUNT(CASE WHEN i.status = 'COMPLETED' THEN 1 END) AS completed_count,
+                   COUNT(CASE WHEN i.status = 'SKIPPED' THEN 1 END) AS skipped_count,
+                   COUNT(CASE WHEN i.status = 'FAILED' THEN 1 END) AS failed_count,
+                   (SELECT failed.error FROM machine_translation_job_items failed
+                     WHERE failed.job_id = j.id AND failed.status = 'FAILED'
+                     ORDER BY failed.entry_id LIMIT 1) AS first_failure
+              FROM machine_translation_jobs j
+              LEFT JOIN machine_translation_job_items i ON i.job_id = j.id
              WHERE j.id = #{jobId}
+             GROUP BY j.id, j.total_count
             """)
-    int refreshJob(@Param("jobId") long jobId, @Param("updatedAt") Instant updatedAt);
+    JobItemCountsRow findItemCounts(@Param("jobId") long jobId);
+
+    @Update("""
+            UPDATE machine_translation_jobs
+               SET completed_count = #{completedCount}, skipped_count = #{skippedCount},
+                   failed_count = #{failedCount}, status = #{status}, error = #{error}, updated_at = #{updatedAt}
+             WHERE id = #{jobId}
+            """)
+    int updateJobProgress(@Param("jobId") long jobId, @Param("completedCount") long completedCount,
+                          @Param("skippedCount") long skippedCount, @Param("failedCount") long failedCount,
+                          @Param("status") String status, @Param("error") String error,
+                          @Param("updatedAt") Instant updatedAt);
 
     @TableName("machine_translation_jobs")
     @Getter @Setter @NoArgsConstructor
@@ -233,5 +239,16 @@ public interface MachineTranslationMapper extends BaseMapper<MachineTranslationM
         private Integer attempts;
         private String status;
         private String error;
+    }
+
+    @Getter @Setter @NoArgsConstructor
+    class JobItemCountsRow {
+        private Long totalCount;
+        private Long queuedCount;
+        private Long runningCount;
+        private Long completedCount;
+        private Long skippedCount;
+        private Long failedCount;
+        private String firstFailure;
     }
 }
