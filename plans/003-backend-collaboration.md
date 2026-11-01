@@ -4,7 +4,7 @@
 
 ## 当前实现进度
 
-- B07 导入闭环新增 MySQL API 集成覆盖：受保护路由提交扁平源文 JSON、相同幂等键重放复用预览、同键不同内容冲突、按预览摘要确认、后台 worker 回填源词条并经 API 查询状态，最后检查 MySQL 行确保没有重复词条。扩展还在 worker 执行前归档空命名空间以产生可重试失败，恢复后通过 API 重试并确认成功回填。另覆盖目标语言导入：未知源键预览为冲突且确认被拒，已有源词条导入后保存为指定目标语言草稿。本地 JDK 21 backend reactor 81 项通过；新增 MySQL 目标语言路径本机因无 MySQL 未执行，CI 待验证。服务端目标语言导入 UI 已提示未知键冲突；Node 22 E2E 在此前 run `41289267029` 通过。实际浏览器 API 模式仍需补验。
+- B07 导入闭环新增 MySQL API 集成覆盖：受保护路由提交扁平源文 JSON、相同幂等键重放复用预览、同键不同内容冲突、按预览摘要确认、后台 worker 回填源词条并经 API 查询状态，最后检查 MySQL 行确保没有重复词条。扩展还在 worker 执行前归档空命名空间以产生可重试失败，恢复后通过 API 重试并确认成功回填。另覆盖目标语言导入：未知源键预览为冲突且确认被拒，已有源词条导入后保存为指定目标语言草稿。JDK 21 backend reactor 81 项本地测试通过；GitHub Actions MySQL 8.0.46 run `41289563436` 验证扩展的源/目标语言导入路径，Node 22 构建与 E2E 也通过。实际浏览器 API 模式仍需补验。
 - 发布任务的 MySQL 集成路径已提升到 HTTP 边界：使用测试身份访问受保护的发布 API，重复 POST 同一幂等键后从任务查询 API 轮询真实 MySQL worker 结果，再验证快照发布及 Netty/WebSocket 通知。测试只替换 JWT 解码器，不扩展身份/用户功能；本地后端 reactor 80 项测试通过，其中 MySQL 集成 4 项因未启用真实数据库而跳过；GitHub Actions MySQL 8.0.46 工作流 run `41288322911` 全部通过（含 Java/MySQL 和前端/E2E 步骤）。
 - 机器翻译基础依赖按功能模块拆分：provider 端口位于 `yandu-machine-translation-contract`，LibreTranslate 与 OpenAI-compatible 分别位于可选 Maven 实现模块，通过 `machine-translation-libretranslate` / `machine-translation-openai-compatible` profiles 引入；backend 单独构建不再包含具体 HTTP provider 实现。两实现可同时引入，`YANDU_MT_PROVIDER` 选择已安装的实现；未安装时服务明确返回不可用。两适配器本地 HTTP 协议测试和 JDK 21 backend 全套 70 项测试均通过；MySQL/API 工作流无需重测，本次没有改业务持久化。
 - Release 的幂等发布创建现在覆盖 MySQL `REPEATABLE READ` 并发竞态：唯一键插入失败后用 `SELECT ... FOR UPDATE` 做当前读，读取并复用并发提交的同一任务；请求摘要不同仍返回冲突。新增的应用服务用例覆盖该竞态；JDK 21 默认 backend reactor 的 71 项测试通过，React/TypeScript 生产构建通过。当前环境没有 MySQL 客户端/服务端、容器工具或 3306 监听，实际 MySQL 并发事务仍待 MySQL 8.0 实例补验。
@@ -75,7 +75,7 @@
 - [ ] 完成 B05 跨成员权限矩阵、双用户并发编辑与 UI 冲突恢复验收。机器翻译多实例闭环另按 B13 实施。
 - [ ] 完成机器翻译 B13 的多实例/更高并发验收，并使用部署方真实配置的大模型或第三方 provider 验证 API→worker→草稿回填；本地 MySQL 8.0.46 + 协议 stub 的幂等、人工译文保护、源版本保护和回填链路已通过，LibreTranslate 和 OpenAI-compatible 协议适配器均有本地 HTTP stub 检查；无真实 provider 凭证时不标记外部调用已验证。
 - [x] 实现质量规则、术语和翻译记忆建议、异步导入任务。
-- [ ] 完成 B06–B07 真实 MySQL API/UI 质量定位及 JSON 预览、幂等与失败重试验收。源语言 JSON API 预览、幂等重放/冲突、确认、worker 回填与失败后重试已由 MySQL 8.0.46 GitHub Actions run `41289006593` 验证；目标语言导入的 MySQL 集成刚加入，CI 待运行。实际浏览器 API 模式和质量错误定位验收仍待完成。
+- [ ] 完成 B06–B07 真实 MySQL API/UI 质量定位及 JSON 预览、幂等与失败重试验收。源语言与目标语言导入的 API 预览/冲突/回填及失败重试已由 MySQL 8.0.46 GitHub Actions run `41289563436` 验证。实际浏览器 API 模式和质量错误定位验收仍待完成。
 - [x] 实现质量门禁、不可变发布快照、JSON/Java Properties 导出、历史与回滚。
 - [ ] 完成 B08–B10 HTTP/UI 发布权限、审计、消费端格式 fixtures 和完整历史回溯验收；MySQL 8.0.46 集成现覆盖受保护的 HTTP 发布任务创建/幂等重放/状态查询、worker 完成和通知链路，GitHub Actions run `41288322911` 通过。仍需完成该项剩余 UI/权限矩阵、审计及历史回溯验收。
 - [x] 实现 B14 发布消费端接口与独立 Spring Boot Starter：公开拉取最新快照、SHA-256 校验、原子内存替换及失败保留最后有效快照；真实 MySQL 公共 API 快照读取已由 CI 集成验证，Starter 原子替换及格式解析由模块测试验证。
