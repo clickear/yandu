@@ -66,6 +66,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 type ApiProject = {
   id: string
   name: string
+  description?: string
   sourceLocale: string
   targetLocales: string[]
   defaultNamespaceId: string
@@ -75,7 +76,7 @@ export function mapProject(project: ApiProject): Project {
   return {
     id: project.id,
     name: project.name,
-    description: '',
+    description: project.description ?? '',
     sourceLanguage: project.sourceLocale,
     targetLanguages: project.targetLocales,
     entries: [],
@@ -229,6 +230,28 @@ export async function waitForRemoteImport(projectId: string, jobId: string) {
     if (job.status === 'COMPLETED' || job.status === 'FAILED') return job
   }
   return { status: 'RUNNING', error: null }
+}
+
+export type ProjectMigration = {
+  id: string; status: string; targetName: string; previewHash: string
+  preview: { targetName: string; entryCount: number; nameCollision: boolean }
+  projectId: string | null; completedEntries: number; entryIdMap: Record<string, string>; error: string | null
+}
+
+export function previewProjectMigration(packageJson: string, targetName: string) {
+  return request<ProjectMigration>('/project-migrations/previews', {
+    method: 'POST', body: JSON.stringify({ packageJson, targetName }),
+  })
+}
+
+export function applyProjectMigration(migrationId: string, previewHash: string) {
+  return request<ProjectMigration>(`/project-migrations/${migrationId}/apply`, {
+    method: 'POST', body: JSON.stringify({ previewHash }),
+  })
+}
+
+export function getProjectMigration(migrationId: string) {
+  return request<ProjectMigration>(`/project-migrations/${migrationId}`)
 }
 
 export async function downloadRemoteRelease(projectId: string, locale: string, format: 'json-flat-v1' | 'java-properties-v1') {

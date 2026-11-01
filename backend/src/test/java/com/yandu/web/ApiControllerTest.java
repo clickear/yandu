@@ -15,6 +15,7 @@ import com.yandu.catalog.CatalogEntryApplicationService;
 import com.yandu.translation.TranslationApplicationService;
 import com.yandu.release.ReleaseApplicationService;
 import com.yandu.imports.ImportApplicationService;
+import com.yandu.imports.ProjectMigrationApplicationService;
 import com.yandu.audit.AuditLog;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -53,6 +54,9 @@ class ApiControllerTest {
 
     @MockitoBean
     private ImportApplicationService imports;
+
+    @MockitoBean
+    private ProjectMigrationApplicationService migrations;
 
     @MockitoBean
     private AuditLog audit;

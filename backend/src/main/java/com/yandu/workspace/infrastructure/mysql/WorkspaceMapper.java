@@ -20,7 +20,7 @@ public interface WorkspaceMapper extends BaseMapper<WorkspaceMapper.ProjectRow> 
     List<String> findTargetLocales(@Param("projectId") long projectId);
 
     @Select("""
-            SELECT p.id, p.owner_id, p.name, p.source_locale, p.version, p.status,
+            SELECT p.id, p.owner_id, p.name, p.description, p.source_locale, p.version, p.status,
                    p.created_at, p.updated_at
               FROM projects p
               JOIN project_members m ON m.project_id = p.id
@@ -31,6 +31,12 @@ public interface WorkspaceMapper extends BaseMapper<WorkspaceMapper.ProjectRow> 
 
     @Select("SELECT COUNT(*) FROM external_identities WHERE user_id = #{userId}")
     long countIdentity(@Param("userId") long userId);
+
+    @Select("SELECT COUNT(*) FROM projects WHERE owner_id = #{ownerId} AND LOWER(name) = LOWER(#{name})")
+    long countProjectName(@Param("ownerId") long ownerId, @Param("name") String name);
+
+    @Update("UPDATE projects SET status = 'ACTIVE', updated_at = #{updatedAt} WHERE id = #{projectId} AND status = 'MIGRATING'")
+    int activateMigrating(@Param("projectId") long projectId, @Param("updatedAt") Instant updatedAt);
 
     @Select("""
             <script>
@@ -112,6 +118,7 @@ public interface WorkspaceMapper extends BaseMapper<WorkspaceMapper.ProjectRow> 
         private Long id;
         private Long ownerId;
         private String name;
+        private String description;
         private String sourceLocale;
         private Long version;
         private String status;

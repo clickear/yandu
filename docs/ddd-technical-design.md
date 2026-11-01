@@ -1,6 +1,6 @@
 # 言渡 YANDU 服务端 DDD 技术设计
 
-版本：0.3（实现对齐版；未决产品规则见第 13 节） · 2026-10-25
+版本：0.4（领域规则已确认；未决项限于部署/运维选择） · 2026-11-01
 关联规格：[spec 003](../specs/003-backend-collaboration.md) · 关联计划：[plan 003](../plans/003-backend-collaboration.md)
 范围来源：关联对话要求排除截图翻译，为其它翻译管理功能形成含后台原型的详细设计，并以可扩展架构为目标。工程实现采用 Spring Boot、Spring Modulith、MyBatis-Plus、MySQL 8.0 和数字 BIGINT ID。
 
@@ -14,7 +14,9 @@
 - 本期不实现 Organization、组织成员、租户列、租户拦截器或跨组织隔离；访问边界是项目成员与项目角色。本文 4.1、6.2 中的组织/租户设计仅作未来扩展参考，不得作为当前实现要求。
 - 本期不实现 Outbox；强一致的跨模块操作通过同一数据库事务中的本地应用服务调用完成。
 - 按用户要求优先沿现有模块扩展，不为小操作拆成大量 Java 类或独立测试类；一个业务大模块完成后集中验证。
-- Java 框架和本设计已作为当前工程基线；OIDC 提供方、具体角色权限规则以及发布细节仍需按产品部署决定。
+- Java 框架和主要领域规则已确认；OIDC 提供方和运行时基础设施仍由部署环境决定。
+
+领域决策已由产品确认，具体规则见[领域词汇表](../GLOSSARY.md)与[ADR-0001–0006](adr/)。本设计文档中的早期示例若与这些 ADR 不一致，以 ADR 为准。
 
 ### 1.1 推荐方案
 
@@ -68,7 +70,7 @@ flowchart LR
 
 | 限界上下文 | 核心职责 | 拥有数据 | 对外契约 |
 | --- | --- | --- | --- |
-| Identity & Organization | 用户身份关联、组织、成员邀请/退出、组织角色 | `users`、`organizations`、`memberships`、邀请记录 | 当前主体、组织成员变更事件 |
+| Identity | OIDC 主体映射和已认证用户身份 | `external_identities` | 当前用户主体；项目成员必须是已存在账号 |
 | Project Workspace | 项目生命周期、语言配置、项目成员授权、命名空间 | `projects`、`project_locales`、`project_members`、`namespaces` | 项目摘要、项目授权决策、项目配置事件 |
 | Localization Catalog | 稳定 key、源文本版本、条目归档、资源结构 | `catalog_entries`、`source_revisions` | 词条查询投影、`EntrySourceChanged` |
 | Translation Workflow | 单语言译文、草稿/审核状态、乐观锁、审核历史 | `translations`、`translation_revisions`、`review_decisions` | 保存/送审/批准/退回命令，翻译事件 |
@@ -127,10 +129,10 @@ Organization 聚合只承载组织名称、状态、套餐策略占位（首期�
 
 Project 聚合管理名称、描述、源语言、生命周期、配置版本。项目语言配置同项目事务更新，采用 `project_locales` 表，不把所有资源载入聚合。
 
-- `sourceLocale` 必须唯一且不在目标语言集合；至少一目标语言是否为创建必需项待确认。
-- 项目 slug/key 规则和归档策略需明确定义；归档项目只读，恢复需要项目管理员权限。
+- `sourceLocale` 创建后不可变；创建项目时至少配置一个目标语言，目标语言可新增并可恢复归档，但不能归档最后一个活动目标语言。
+- 项目名称在同一 Owner 名下去除首尾空格后大小写不敏感且唯一；项目可恢复归档，不提供硬删除。
 - `(organization_id, project_id)` 资源引用必须一致；业务读取总带组织/项目约束。
-- 项目成员角色建议 `PROJECT_ADMIN | TRANSLATOR | REVIEWER | VIEWER`，角色作用域先按项目；用户可同时具有译员与审校员身份，但是否能自审由策略明确禁止。
+- 每名成员在项目内只有一个项目级角色，不按语言细分；成员必须是已存在账号。Owner 唯一，可转让给现有 Admin，非 Owner 可自行退出。
 
 ### 4.3 CatalogEntry（源词条）
 
@@ -146,7 +148,7 @@ CatalogEntry
   lifecycle: ACTIVE | ARCHIVED
 ```
 
-不变量：`(project_id, namespace_id, canonical_key)` 唯一；同一修改命令中源文本不变则不增加 revision；有变化则 `sourceRevision + 1` 并追加 SourceRevision 记录。翻译模块落地后，源文本修改和全部活动目标译文标记 `NEEDS_REVIEW` 在同一数据库事务内完成；即使当前使用本地模块调用，也要由“源版本落后即禁止审核/发布”的读时检查兜底。
+不变量：词条键在整个项目范围唯一，命名空间仅用于组织分组；同一修改命令中源文本不变则不增加 revision；有变化则 `sourceRevision + 1` 并追加 SourceRevision 记录。源文本修改和全部活动目标译文标记 `NEEDS_REVIEW` 在同一数据库事务内完成。显式改键或移动命名空间保留词条 ID、译文和审核状态，不增加源文修订；只归档空命名空间。
 
 ### 4.4 Translation（每个条目、目标语言一个聚合）
 
@@ -168,13 +170,14 @@ Translation
 - 值变化时生成 `TranslationRevision`、增加 version；如原状态为 APPROVED 则变为 DRAFT；如 `basedOnSourceRevision < current sourceRevision` 则保持 NEEDS_REVIEW，必须显式确认基于新源文翻译后才能送审。
 - `SubmitForReview` 要求非空译文、无阻断质量错误、译文基于当前源版本；转 `IN_REVIEW`。
 - `Approve` 只允许 Reviewer/Admin 权限；禁止原译者自审；决策绑定精确 `translation.version` 和 `sourceRevision`。提交或批准后内容变动，则批准对新版本无效。
-- `RequestChanges` 需要原因并绑定版本；旧决定保留。撤回需单独 `WithdrawReviewDecision` 命令、权限和审计理由，不删除历史。
+- `RequestChanges` 需要原因并绑定版本；译员编辑后回到 `DRAFT`，再次送审产生新决定；旧决定保留。首期不实现审核决定撤回。
 
 ### 4.5 ImportJob、Release
 
-ImportJob 和 Release 都是独立聚合，不放在 Project 聚合中。
+ImportJob、ProjectMigration 和 Release 都是独立聚合，不放在 Project 聚合中。
 
-- Import 状态：`UPLOADED → PARSING → PREVIEW_READY → APPLYING → COMPLETED`；可转 `FAILED` 或 `CANCELLED`。`APPLYING` 只能应用用户确认的预览哈希；保存 `idempotency_key`，唯一约束 `(organization_id, idempotency_key)`。
+- Import 只接受 UTF-8 扁平 JSON 字符串映射；重复键或不受支持的花括号占位格式整包拒绝。状态：`UPLOADED → PARSING → PREVIEW_READY → APPLYING → COMPLETED`；失败可重试，应用必须匹配预览摘要。
+- ProjectMigration 使用版本化 UTF-8 JSON 包，每包只含一个项目及说明、语言、词条和译文；上限 5 MiB/10,000 词条。预览后由持久任务分批迁移；任务幂等、可查询并可从未完成项恢复，迁移中或失败的项目不可参与常规工作。相同来源项目的不同包摘要拒绝；冲突名称必须在应用前改名。迁入译文一律为 `DRAFT`。
 - Release 状态：`BUILDING → READY → PUBLISHED`；失败可 `FAILED`。已发布版本不更新、不覆盖。创建新发布用于“回滚”，其 manifest 引用/复制旧资源版本并标注 `rollback_of_release_id`。
 - 发布 manifest 固定 locale、key、源版本、译文 revision、quality report revision、格式和导出器版本，生成 SHA-256 校验和。仅保存 manifest 的不可变文件对象 key，不接受覆盖写。
 
@@ -217,7 +220,7 @@ sequenceDiagram
 ### 5.2 导入 JSON
 
 1. API 校验文件大小、编码、扩展名和操作者导入权限，上传到隔离存储，创建任务及幂等键并立即返回 `202 + jobId`。
-2. Worker 流式解析；拒绝重复 key、危险路径段、非字符串叶节点/超深嵌套（首期 JSON 正式范围需确认），收集行号和错误。
+2. Worker 流式解析扁平 JSON；拒绝重复 key、危险路径段、非字符串值和不支持的占位符形式，收集键和错误。
 3. 任务生成只读 Preview，包含新增/修改/保持/冲突/无效统计和最多分页浏览的差异明细；预览绑定输入文件摘要、项目配置版本和解析器版本。
 4. 用户确认 Preview 时必须传 `previewHash`；如项目配置或条目版本变化，返回 `IMPORT_PREVIEW_STALE` 要求重算。
 5. Apply 用固定大小分批，写入事务和导入行结果；失败时按已确认的原子性策略整体回滚或报告可重试批次。推荐每个 namespace+locale 的确认应用批次事务化，不允许“成功”状态掩盖部分失败。
@@ -225,7 +228,7 @@ sequenceDiagram
 
 ### 5.3 审核、质量和发布
 
-质量 API 对当前 sourceRevision/value/version 计算结构化问题：`ruleId/severity/locale/entryId/key/location/message/expected/actual`。占位符识别器首期明确支持的语法必须在格式规格定义，不以正则猜测所有模板类型。
+Quality 模块对当前 sourceRevision/value/version 计算结构化问题：`ruleId/severity/locale/entryId/key/location/message/expected/actual`。首期支持非空译文和 `{name}` 命名占位符（精确比较名称及出现次数）；`{{`/`}}` 表示字面花括号，其他花括号格式为错误。质量错误阻止送审和发布但不阻止保存草稿。检查随发布执行，发布时的检查结果保存在不可变发布记录中。
 
 发布命令带 `projectId + locale(s) + format + expectedCatalogRevision + idempotencyKey`。Release 应用服务校验：操作者权限、词条覆盖策略、无处于过期源版本的已批准译文、当前版本全部通过 blocker 质量规则，然后创建快照任务。Worker 写临时对象，校验解析/序列化 fixtures、计算 checksum，最后以不可变 artifact key 标记 READY/PUBLISHED。下载每次重新验证当前访问权限并审计，不把永久公开的对象 URL 暴露给未授权用户。
 
@@ -235,10 +238,9 @@ sequenceDiagram
 
 ```text
 Decision = authenticated principal
-         + active OrganizationMembership
-         + ProjectMembership/OrganizationAdmin policy
+         + ProjectMembership
          + action permission
-         + resource organization_id/project_id match
+         + resource project_id match
          + resource lifecycle / workflow condition
 ```
 
@@ -252,21 +254,19 @@ Decision = authenticated principal
 - 永不信任请求中的组织 ID：从认证主体解析可用组织，再验证资源归属；跨组织资源错误统一返回 404，避免枚举。
 - 组织边界的集成测试必须覆盖 list/get/create/update/delete/export/history/task/artifact 全部读写入口及异步执行。
 
-### 6.3 默认权限矩阵草案
+### 6.3 项目角色权限矩阵
 
-| 能力 | Org Owner/Admin | Project Admin | Translator | Reviewer | Viewer |
+| 能力 | Owner | Admin | Translator | Reviewer | Viewer |
 | --- | --- | --- | --- | --- | --- |
-| 管理组织成员 | 是 | 否 | 否 | 否 | 否 |
-| 项目/语言设置 | 是（策略待定） | 是 | 否 | 否 | 否 |
-| 读词条/译文 | 是 | 是 | 是 | 是 | 是 |
-| 修改源文本/导入 | 是（策略待定） | 是 | 否 | 否 | 否 |
-| 编辑译文 | 可配置 | 可配置 | 是 | 可配置 | 否 |
-| 送审 | 可配置 | 可配置 | 是（自己的译文） | 可配置 | 否 |
-| 审核他人译文 | 可配置（须理由） | 可配置（须理由） | 否 | 是 | 否 |
-| 发布/回滚/下载历史包 | 可配置 | 是 | 否 | 可配置 | 否 |
-| 查看审计日志 | 是（组织级） | 是（项目级） | 否 | 否 | 否 |
+| 管理项目设置/语言/命名空间/源词条 | 是 | 是 | 否 | 否 | 否 |
+| 管理成员 | 全部角色；转让 Owner | Translator/Reviewer/Viewer | 否 | 否 | 否 |
+| 读取项目/词条/译文 | 是 | 是 | 是 | 是 | 是 |
+| 编辑并送审译文 | 是 | 是 | 是 | 否 | 否 |
+| 审核他人译文 | 是 | 是 | 否 | 是 | 否 |
+| 发布/回滚/下载历史 | 是 | 是 | 否 | 否 | 读取既有发布 |
+| 审核本人最近编辑的译文 | 否 | 否 | 否 | 否 | 否 |
 
-此表是需要产品确认的草案；实现前要拆分权限码，并明确组织管理员是否默认拥有项目数据访问权、导出权和审计查看权。
+每名成员只持一个项目角色；Admin 不能管理 Owner 或 Admin。项目的成员和资源授权不依赖组织/租户层。
 
 ## 7. 持久化逻辑模型
 
@@ -358,7 +358,7 @@ erDiagram
 
 ```text
 ┌──────────────────┬────────────────────────────────────────────────────────────┐
-│ YANDU / 组织切换 │ 项目：移动端 App   语言：en-US       [导入] [发布] [设置] │
+│ YANDU              │ 项目：移动端 App   语言：en-US       [导入] [发布] [设置] │
 ├──────────────────┼────────────────────────────────────────────────────────────┤
 │ 项目列表         │ 进度  82% 已翻译   66% 已审核   12 条质量问题               │
 │ ├─ 移动端 App    ├────────────────────────────────────────────────────────────┤
@@ -373,7 +373,7 @@ erDiagram
 
 关键后台页面/状态：
 
-1. **组织与成员**：组织切换、成员/邀请、组织角色；空态、邀请过期、成员已停用、最后 Owner 保护。
+1. **项目与成员**：项目切换、成员/项目角色；空态、成员变更、Owner 转让和最后 Owner 保护。
 2. **项目工作台**：项目/语言切换、词条表、搜索分页、审校/质量状态；加载骨架、无结果、网络错误重试、无权限、归档只读、版本冲突保留草稿。
 3. **导入中心**：上传限制说明、任务队列、差异预览分页、行级错误、配置过期提醒、确认导入二次确认、可重试失败任务。
 4. **发布中心**：locale/格式/版本选择、质量门禁摘要、阻断项定位、构建中/失败/已发布、校验和、下载和历史回滚。
@@ -420,12 +420,8 @@ erDiagram
 
 ## 13. 待决策清单
 
-这些问题不影响 DDD 建模继续推进，但须在对应实现切片前由产品/技术负责人确认：
+领域和产品行为规则已确认，见 ADR-0001–0006；未决选择不改变当前领域模型：
 
-1. 云/私有部署和 OIDC 服务提供者。
-2. 项目角色矩阵是否按语言细分；审校员是否可编辑自己的译文。
-3. 源语言/目标语言可修改规则；项目/词条删除与保留策略。
-4. JSON 是扁平或嵌套；属性文件编码与注释保留要求。
-5. ICU/占位符语法、质量 blocker/warning 策略、零译文或未审核译文的发布规则。
-6. 本地迁移包格式和冲突合并策略，术语与翻译记忆项目可见范围。
-7. MySQL 8.0 托管服务、对象存储、邮件提供方、备份密钥和运维责任人；若必须兼容第二种数据库，需指定目标产品和版本。
+1. OIDC 提供者、audience、云/私有部署和管理员账户恢复方式。
+2. 对象存储、邮件提供方、备份密钥与保留期、灾难恢复责任人。
+3. 第二种数据库产品与版本；指定并运行共同持久化契约之前，不宣称支持 MySQL 8.0 以外的数据库。

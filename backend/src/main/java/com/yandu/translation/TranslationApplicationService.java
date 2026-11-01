@@ -84,6 +84,23 @@ public class TranslationApplicationService {
         return view(translation, sourceRevision);
     }
 
+    /** Copies one local value as a fresh server-side draft while a project is migrating. */
+    @Transactional
+    public void createMigratedDraft(long actorId, long projectId, long entryId,
+                                    String locale, String value) {
+        access.requireCanManageTranslation(actorId, projectId);
+        var normalizedLocale = Translation.normalizeLocale(locale);
+        if (value == null || value.isBlank()) return;
+        var translation = Translation.newDraft(ids.getAsLong(), projectId, entryId, normalizedLocale);
+        translation.save(0, 1, 1, value, actorId);
+        var now = clock.instant();
+        translations.insert(translation, now);
+        translations.appendRevision(translation, actorId, now);
+        audit.record(projectId, actorId, "TRANSLATION_MIGRATED", "TRANSLATION",
+                translation.id(), java.util.Map.of("entryId", entryId, "locale", normalizedLocale,
+                        "status", "DRAFT"));
+    }
+
     @Transactional(readOnly = true)
     public TranslationView get(ReadTranslation query) {
         access.requireCanReadTranslation(query.actorId(), query.projectId());

@@ -44,25 +44,52 @@ public class WorkspaceApplicationService {
         return view(project);
     }
 
+    /** Creates a hidden project shell for the resumable local-project migration workflow. */
+    @Transactional
+    public long createMigratingProject(long actorId, String name, String description,
+                                       String sourceLocale, Set<String> targetLocales) {
+        access.requireCanCreateProject(actorId);
+        if (targetLocales == null || targetLocales.isEmpty()) {
+            throw new IllegalArgumentException("At least one target locale is required");
+        }
+        var normalized = targetLocales.stream().map(Project::validateLocale)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        var project = new Project(ids.getAsLong(), actorId, name, sourceLocale, normalized, 1);
+        var now = clock.instant();
+        projects.insertMigrating(snapshot(project, description), description, project.id(), "default", now);
+        audit.record(project.id(), actorId, "PROJECT_MIGRATION_STARTED", "PROJECT",
+                project.id(), java.util.Map.of("sourceLocale", project.sourceLocale()));
+        return project.id();
+    }
+
+    @Transactional
+    public void activateMigratingProject(long projectId) {
+        projects.activateMigrating(projectId, clock.instant());
+    }
+
+    @Transactional(readOnly = true)
+    public boolean projectNameExists(long ownerId, String name) {
+        return projects.projectNameExists(ownerId, name);
+    }
+
     @Transactional
     public ProjectView addTargetLocale(AddTargetLocale command) {
         access.requireCanManageProject(command.actorId(), command.projectId());
-        var project = projects.find(command.projectId())
-                .map(WorkspaceApplicationService::toDomain)
+        var existing = projects.find(command.projectId())
                 .orElseThrow(() -> new ProjectNotFoundException(command.projectId()));
+        var project = toDomain(existing);
         project.addTargetLocale(command.locale());
-        var updated = snapshot(project);
+        var updated = snapshot(project, existing.description());
         projects.update(updated, clock.instant());
         audit.record(project.id(), command.actorId(), "TARGET_LOCALE_ADDED", "PROJECT_LANGUAGE",
                 null, java.util.Map.of("locale", command.locale(), "projectVersion", project.version()));
-        return view(project);
+        return view(updated);
     }
 
     @Transactional(readOnly = true)
     public ProjectView getProject(long actorId, long projectId) {
         access.requireCanReadProject(actorId, projectId);
         var project = projects.find(projectId)
-                .map(WorkspaceApplicationService::toDomain)
                 .orElseThrow(() -> new ProjectNotFoundException(projectId));
         return view(project);
     }
@@ -70,10 +97,7 @@ public class WorkspaceApplicationService {
     @Transactional(readOnly = true)
     public List<ProjectView> listProjects(long actorId) {
         if (actorId <= 0) throw new IllegalArgumentException("actorId must be positive");
-        return projects.findForMember(actorId).stream()
-                .map(WorkspaceApplicationService::toDomain)
-                .map(WorkspaceApplicationService::view)
-                .toList();
+        return projects.findForMember(actorId).stream().map(WorkspaceApplicationService::view).toList();
     }
 
     @Transactional
@@ -103,13 +127,25 @@ public class WorkspaceApplicationService {
 
     private static ProjectSnapshot snapshot(Project project) {
         return new ProjectSnapshot(project.id(), project.ownerId(), project.name(),
-                project.sourceLocale(), project.targetLocales(), project.version());
+                project.sourceLocale(), project.targetLocales(), project.version(), "");
+    }
+
+    private static ProjectSnapshot snapshot(Project project, String description) {
+        return new ProjectSnapshot(project.id(), project.ownerId(), project.name(),
+                project.sourceLocale(), project.targetLocales(), project.version(),
+                description == null ? "" : description);
     }
 
     private static ProjectView view(Project project) {
         return new ProjectView(Long.toString(project.id()), Long.toString(project.ownerId()),
                 project.name(), project.sourceLocale(), project.targetLocales(),
-                project.version(), Long.toString(project.id()));
+                project.version(), Long.toString(project.id()), "");
+    }
+
+    private static ProjectView view(ProjectSnapshot project) {
+        return new ProjectView(Long.toString(project.id()), Long.toString(project.ownerId()),
+                project.name(), project.sourceLocale(), project.targetLocales(),
+                project.version(), Long.toString(project.id()), project.description());
     }
 
     public static String normalizeLocale(String locale) {
@@ -150,11 +186,20 @@ public class WorkspaceApplicationService {
     }
 
     public record ProjectSnapshot(long id, long ownerId, String name, String sourceLocale,
-                                  Set<String> targetLocales, long version) {
+                                  Set<String> targetLocales, long version, String description) {
+        public ProjectSnapshot(long id, long ownerId, String name, String sourceLocale,
+                              Set<String> targetLocales, long version) {
+            this(id, ownerId, name, sourceLocale, targetLocales, version, "");
+        }
     }
 
     public record ProjectView(String id, String ownerId, String name, String sourceLocale,
-                              Set<String> targetLocales, long version, String defaultNamespaceId) {
+                              Set<String> targetLocales, long version, String defaultNamespaceId,
+                              String description) {
+        public ProjectView(String id, String ownerId, String name, String sourceLocale,
+                           Set<String> targetLocales, long version, String defaultNamespaceId) {
+            this(id, ownerId, name, sourceLocale, targetLocales, version, defaultNamespaceId, "");
+        }
     }
 
     public static final class ProjectNotFoundException extends RuntimeException {

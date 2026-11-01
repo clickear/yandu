@@ -12,6 +12,13 @@ public interface WorkspaceRepository {
 
     void insert(ProjectSnapshot project, long namespaceId, String namespaceName, Instant createdAt);
 
+    void insertMigrating(ProjectSnapshot project, String description, long namespaceId,
+                         String namespaceName, Instant createdAt);
+
+    void activateMigrating(long projectId, Instant updatedAt);
+
+    boolean projectNameExists(long ownerId, String name);
+
     Optional<ProjectSnapshot> find(long projectId);
 
     List<ProjectSnapshot> findForMember(long actorId);

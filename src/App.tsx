@@ -69,7 +69,11 @@ import {
   submitRemoteTranslation,
   updateRemoteSource,
   waitForRemoteImport,
+  previewProjectMigration,
+  applyProjectMigration,
+  getProjectMigration,
 } from './backend'
+import type { ProjectMigration } from './backend'
 
 function readInitial() {
   try {
@@ -82,6 +86,13 @@ function readInitial() {
         '无法读取本地数据，已显示示例。原数据不会被覆盖；可导出当前文案，或确认重置本地存储。',
     }
   }
+}
+
+function readLocalProjectsForMigration(): Project[] {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    return saved ? parseWorkspace(saved).projects : []
+  } catch { return [] }
 }
 
 function Modal({
@@ -308,7 +319,7 @@ export default function App() {
   const [locale, setLocale] = useState(workspace.projects[0]?.targetLanguages[0] ?? 'en-US')
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('all')
-  const [modal, setModal] = useState<'project' | 'entry' | 'language' | 'import' | 'members' | 'glossary' | null>(null)
+  const [modal, setModal] = useState<'project' | 'entry' | 'language' | 'import' | 'members' | 'glossary' | 'migration' | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [sourceEditingId, setSourceEditingId] = useState<string | null>(null)
   const [sourceText, setSourceText] = useState('')
@@ -337,6 +348,11 @@ export default function App() {
   const [membersLoading, setMembersLoading] = useState(false)
   const [glossaryTerms, setGlossaryTerms] = useState<Awaited<ReturnType<typeof listRemoteGlossary>>['items']>([])
   const [glossaryLoading, setGlossaryLoading] = useState(false)
+  const [localProjects] = useState(readLocalProjectsForMigration)
+  const [localProjectId, setLocalProjectId] = useState('')
+  const [migrationName, setMigrationName] = useState('')
+  const [migrationPreview, setMigrationPreview] = useState<ProjectMigration | null>(null)
+  const [migrationBusy, setMigrationBusy] = useState(false)
   const project = workspace.projects.find((p) => p.id === projectId)
   const editing = project?.entries.find((e) => e.id === editingId)
   const sourceEditing = project?.entries.find((e) => e.id === sourceEditingId)
@@ -449,9 +465,16 @@ export default function App() {
     setImportText('')
     setImportFile('')
     setImportPreview(null)
+    setMigrationPreview(null)
+    if (next === 'migration') {
+      const first = localProjects[0]
+      setLocalProjectId(first?.id ?? '')
+      setMigrationName(first?.name ?? '')
+    }
     setImportLocale(locale)
     setModal(next)
   }
+  const localMigrationProject = localProjects.find((item) => item.id === localProjectId)
   const chooseProject = (p: Project) => {
     setProjectId(p.id)
     setLocale(p.targetLanguages[0])
@@ -544,6 +567,28 @@ export default function App() {
       .finally(() => { if (active) setGlossaryLoading(false) })
     return () => { active = false }
   }, [modal, project?.id, project?.sourceLanguage, locale])
+
+  useEffect(() => {
+    if (modal !== 'migration' || !migrationPreview
+      || !['QUEUED', 'RUNNING'].includes(migrationPreview.status)) return
+    let active = true
+    const timer = window.setInterval(() => {
+      void getProjectMigration(migrationPreview.id).then(async (state) => {
+        if (!active) return
+        setMigrationPreview(state)
+        if (state.status === 'COMPLETED') {
+          const projects = (await listProjects()).map(mapProject)
+          if (!active) return
+          setWorkspace({ version: 1, projects })
+          if (state.projectId) setProjectId(state.projectId)
+          notify('本地项目迁移完成，项目现已加入团队工作空间。')
+        }
+      }).catch((error: unknown) => {
+        if (active) setFormError(error instanceof Error ? error.message : '迁移状态读取失败。')
+      })
+    }, 2000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [modal, migrationPreview?.id, migrationPreview?.status])
 
   if (backendEnabled && authStatus !== 'ready') {
     const message = backendConfigurationError || backendError
@@ -648,6 +693,9 @@ export default function App() {
             )}
           </div>
           <span className="prototype-pill">{backendEnabled ? '团队工作空间' : '本地原型'}</span>
+          {backendEnabled && localProjects.length > 0 && (
+            <button className="button plain" onClick={() => openModal('migration')}>迁移本地项目</button>
+          )}
           {backendEnabled && <button className="button plain" onClick={() => void signOut()}>退出登录</button>}
         </header>
         <main>
@@ -1248,6 +1296,66 @@ export default function App() {
           )}
           <div className="modal-actions">
             <button type="button" className="button secondary" onClick={() => setModal(null)}>关闭</button>
+          </div>
+        </Modal>
+      )}
+      {modal === 'migration' && (
+        <Modal title="迁移本地项目到团队工作空间" onClose={() => setModal(null)}>
+          <div className="form-stack">
+            <label>
+              本地项目
+              <select value={localProjectId} disabled={Boolean(migrationPreview && !migrationPreview.preview.nameCollision)} onChange={(event) => {
+                const selected = localProjects.find((item) => item.id === event.target.value)
+                setLocalProjectId(event.target.value)
+                setMigrationName(selected?.name ?? '')
+                setMigrationPreview(null)
+              }}>
+                {localProjects.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.entries.length} 条</option>)}
+              </select>
+            </label>
+            <label>团队项目名称<input value={migrationName} maxLength={120}
+              disabled={Boolean(migrationPreview && !migrationPreview.preview.nameCollision)}
+              onChange={(event) => { setMigrationName(event.target.value); if (migrationPreview?.preview.nameCollision) setMigrationPreview(null) }} /></label>
+            <p className="form-hint">迁移会复制源文案和译文，译文状态统一转为草稿。团队项目使用新的服务端 ID，本地数据会保留。</p>
+            {migrationPreview && (
+              <div className="import-preview" aria-live="polite">
+                <p>状态：{migrationPreview.status} · 已迁移 {migrationPreview.completedEntries} / {migrationPreview.preview.entryCount} 条</p>
+                {migrationPreview.preview.nameCollision && <p className="form-error">该名称已存在，请返回修改名称后重新预览。</p>}
+                {migrationPreview.error && <p className="form-error">{migrationPreview.error}</p>}
+                {migrationPreview.projectId && <p>团队项目 ID：<code>{migrationPreview.projectId}</code></p>}
+              </div>
+            )}
+            {formError && <p className="form-error" role="alert">{formError}</p>}
+            <div className="modal-actions">
+              {!migrationPreview ? (
+                <button className="button primary" disabled={!localMigrationProject || migrationBusy || !migrationName.trim()}
+                  onClick={async () => {
+                    if (!localMigrationProject) return
+                    setMigrationBusy(true); setFormError('')
+                    try {
+                      const packageJson = JSON.stringify({
+                        format: 'yandu-project-migration', schemaVersion: 1,
+                        sourceProjectId: localMigrationProject.id,
+                        project: { name: localMigrationProject.name, description: localMigrationProject.description,
+                          sourceLanguage: localMigrationProject.sourceLanguage, targetLanguages: localMigrationProject.targetLanguages },
+                        entries: localMigrationProject.entries.map((entry) => ({ id: entry.id, key: entry.key,
+                          source: entry.source, translations: entry.translations })),
+                      })
+                      setMigrationPreview(await previewProjectMigration(packageJson, migrationName.trim()))
+                    } catch (error) { setFormError(error instanceof Error ? error.message : '迁移预览失败。') }
+                    finally { setMigrationBusy(false) }
+                  }}>{migrationBusy ? '正在预览…' : '预览迁移'}</button>
+              ) : migrationPreview.status === 'PREVIEW_READY' || migrationPreview.status === 'FAILED' ? (
+                <button className="button primary" disabled={migrationBusy || migrationPreview.preview.nameCollision}
+                  onClick={async () => {
+                    setMigrationBusy(true); setFormError('')
+                    try { setMigrationPreview(await applyProjectMigration(migrationPreview.id, migrationPreview.previewHash)) }
+                    catch (error) { setFormError(error instanceof Error ? error.message : '提交迁移失败。') }
+                    finally { setMigrationBusy(false) }
+                  }}>{migrationPreview.status === 'FAILED' ? '使用相同数据重试' : '确认并开始迁移'}</button>
+              ) : null}
+              <button type="button" className="button secondary" onClick={() => setModal(null)}>关闭</button>
+            </div>
           </div>
         </Modal>
       )}

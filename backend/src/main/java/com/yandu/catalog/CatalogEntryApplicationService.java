@@ -50,14 +50,28 @@ public class CatalogEntryApplicationService {
     @Transactional
     public EntryView create(CreateEntry command) {
         accessPolicy.requireCanManageCatalog(command.actorId(), command.projectId());
+        return createEntry(command.actorId(), command.projectId(), command.namespaceId(),
+                command.sourceLocale(), command.key(), command.sourceText());
+    }
+
+    /** Imports one already-validated entry while a project is hidden in migration state. */
+    @Transactional
+    public long createMigratedEntry(long actorId, long projectId, long namespaceId,
+                                    String sourceLocale, String key, String sourceText) {
+        accessPolicy.requireCanManageCatalog(actorId, projectId);
+        return Long.parseLong(createEntry(actorId, projectId, namespaceId, sourceLocale,
+                key, sourceText).id());
+    }
+
+    private EntryView createEntry(long actorId, long projectId, long namespaceId,
+                                  String sourceLocale, String key, String sourceText) {
         var now = clock.instant();
         var entryId = ids.getAsLong();
         var entry = new CatalogEntry(
-                entryId, command.projectId(), command.key(), command.sourceText(), 1, 1);
-        entries.insert(command.namespaceId(), command.sourceLocale(),
-                entry, command.actorId(), now);
-        audit.record(command.projectId(), command.actorId(), "CATALOG_ENTRY_CREATED",
-                "CATALOG_ENTRY", entryId, java.util.Map.of("namespaceId", command.namespaceId(),
+                entryId, projectId, key, sourceText, 1, 1);
+        entries.insert(namespaceId, sourceLocale, entry, actorId, now);
+        audit.record(projectId, actorId, "CATALOG_ENTRY_CREATED",
+                "CATALOG_ENTRY", entryId, java.util.Map.of("namespaceId", namespaceId,
                         "key", entry.key(), "sourceRevision", entry.sourceRevision()));
         return EntryView.from(entry, false);
     }

@@ -21,19 +21,44 @@ public class MyBatisWorkspaceRepository implements WorkspaceRepository {
     @Override
     public void insert(ProjectSnapshot project, long namespaceId, String namespaceName,
                        Instant createdAt) {
+        insertProject(project, null, namespaceId, namespaceName, createdAt, "ACTIVE");
+    }
+
+    @Override
+    public void insertMigrating(ProjectSnapshot project, String description, long namespaceId,
+                                String namespaceName, Instant createdAt) {
+        insertProject(project, description, namespaceId, namespaceName, createdAt, "MIGRATING");
+    }
+
+    private void insertProject(ProjectSnapshot project, String description, long namespaceId,
+                               String namespaceName, Instant createdAt, String status) {
         var row = new WorkspaceMapper.ProjectRow();
         row.setId(project.id());
         row.setOwnerId(project.ownerId());
         row.setName(project.name());
         row.setSourceLocale(project.sourceLocale());
         row.setVersion(project.version());
-        row.setStatus("ACTIVE");
+        row.setStatus(status);
+        row.setDescription(description);
         row.setCreatedAt(createdAt);
         row.setUpdatedAt(createdAt);
         mapper.insert(row);
         mapper.insertOwnerMembership(project.id(), project.ownerId(), createdAt);
         mapper.insertDefaultNamespace(namespaceId, project.id(), namespaceName,
                 project.ownerId(), createdAt);
+        for (var locale : project.targetLocales()) {
+            mapper.insertTargetLocale(project.id(), locale, createdAt);
+        }
+    }
+
+    @Override public void activateMigrating(long projectId, Instant updatedAt) {
+        if (mapper.activateMigrating(projectId, updatedAt) != 1) {
+            throw new IllegalStateException("Migrating project could not be activated");
+        }
+    }
+
+    @Override public boolean projectNameExists(long ownerId, String name) {
+        return mapper.countProjectName(ownerId, name) > 0;
     }
 
     @Override
@@ -44,7 +69,7 @@ public class MyBatisWorkspaceRepository implements WorkspaceRepository {
         }
         return Optional.of(new ProjectSnapshot(row.getId(), row.getOwnerId(), row.getName(),
                 row.getSourceLocale(), java.util.Set.copyOf(mapper.findTargetLocales(projectId)),
-                row.getVersion()));
+                row.getVersion(), row.getDescription()));
     }
 
     @Override
@@ -52,7 +77,7 @@ public class MyBatisWorkspaceRepository implements WorkspaceRepository {
         return mapper.findActiveForMember(actorId).stream()
                 .map(row -> new ProjectSnapshot(row.getId(), row.getOwnerId(), row.getName(),
                         row.getSourceLocale(), java.util.Set.copyOf(mapper.findTargetLocales(row.getId())),
-                        row.getVersion()))
+                        row.getVersion(), row.getDescription()))
                 .toList();
     }
 

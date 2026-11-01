@@ -15,6 +15,49 @@ import org.apache.ibatis.annotations.Update;
 
 @Mapper
 public interface ImportMapper extends BaseMapper<ImportMapper.ImportJobRow> {
+    @Select("SELECT * FROM project_migrations WHERE id = #{id}")
+    ProjectMigrationRow findMigration(@Param("id") long id);
+
+    @Select("SELECT * FROM project_migrations WHERE id = #{id} FOR UPDATE")
+    ProjectMigrationRow findMigrationForUpdate(@Param("id") long id);
+
+    @Select("SELECT * FROM project_migrations WHERE actor_id = #{actorId} AND source_project_id = #{sourceProjectId}")
+    ProjectMigrationRow findMigrationBySource(@Param("actorId") long actorId,
+                                               @Param("sourceProjectId") String sourceProjectId);
+
+    @Select("SELECT * FROM project_migrations WHERE status = 'QUEUED' ORDER BY updated_at, id LIMIT #{limit}")
+    List<ProjectMigrationRow> findQueuedMigrations(@Param("limit") int limit);
+
+    @Update("UPDATE project_migrations SET status = 'RUNNING', updated_at = #{updatedAt} WHERE id = #{id} AND status = 'QUEUED'")
+    int claimMigration(@Param("id") long id, @Param("updatedAt") Instant updatedAt);
+
+    @Insert("""
+            INSERT INTO project_migrations
+              (id, actor_id, source_project_id, package_json, package_hash, target_name,
+               preview_json, preview_hash, status, target_project_id, completed_entries,
+               entry_id_map_json, version, created_at, updated_at, error)
+            VALUES (#{id}, #{actorId}, #{sourceProjectId}, #{packageJson}, #{packageHash}, #{targetName},
+                    #{previewJson}, #{previewHash}, #{status}, #{targetProjectId}, #{completedEntries},
+                    #{entryIdMapJson}, #{version}, #{createdAt}, #{updatedAt}, #{error})
+            """)
+    int insertMigration(ProjectMigrationRow row);
+
+    @Update("""
+            UPDATE project_migrations SET target_name = #{targetName}, preview_json = #{previewJson},
+              preview_hash = #{previewHash}, status = #{status}, target_project_id = #{targetProjectId},
+              completed_entries = #{completedEntries}, entry_id_map_json = #{entryIdMapJson},
+              version = #{version}, updated_at = #{updatedAt}, error = #{error}
+             WHERE id = #{id} AND version = #{expectedVersion}
+            """)
+    int saveMigration(ProjectMigrationRow row, @Param("expectedVersion") long expectedVersion);
+
+    @Update("""
+            UPDATE project_migrations SET status = 'QUEUED', error = NULL, updated_at = #{updatedAt}
+             WHERE status = 'RUNNING' AND updated_at < #{runningBefore}
+            """)
+    int recoverStaleMigrations(@Param("runningBefore") Instant runningBefore,
+                               @Param("updatedAt") Instant updatedAt);
+
     @Select("SELECT * FROM import_jobs WHERE project_id = #{projectId} AND id = #{jobId}")
     ImportJobRow find(@Param("projectId") long projectId, @Param("jobId") long jobId);
 
@@ -74,6 +117,27 @@ public interface ImportMapper extends BaseMapper<ImportMapper.ImportJobRow> {
         private String previewHash;
         private String status;
         private Long createdBy;
+        private Instant createdAt;
+        private Instant updatedAt;
+        private String error;
+    }
+
+    @TableName("project_migrations")
+    @Getter @Setter @NoArgsConstructor
+    class ProjectMigrationRow {
+        private Long id;
+        private Long actorId;
+        private String sourceProjectId;
+        private String packageJson;
+        private String packageHash;
+        private String targetName;
+        private String previewJson;
+        private String previewHash;
+        private String status;
+        private Long targetProjectId;
+        private Integer completedEntries;
+        private String entryIdMapJson;
+        private Long version;
         private Instant createdAt;
         private Instant updatedAt;
         private String error;

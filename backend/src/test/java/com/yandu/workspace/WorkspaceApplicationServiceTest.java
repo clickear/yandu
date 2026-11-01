@@ -133,6 +133,19 @@ class WorkspaceApplicationServiceTest {
         }
 
         @Override
+        public void insertMigrating(WorkspaceApplicationService.ProjectSnapshot project, String description,
+                                    long namespaceId, String namespaceName, Instant createdAt) {
+            insert(project, namespaceId, namespaceName, createdAt);
+        }
+
+        @Override public void activateMigrating(long projectId, Instant updatedAt) { }
+
+        @Override public boolean projectNameExists(long ownerId, String name) {
+            return projects.values().stream().anyMatch(project -> project.ownerId() == ownerId
+                    && project.name().equalsIgnoreCase(name));
+        }
+
+        @Override
         public Optional<WorkspaceApplicationService.ProjectSnapshot> find(long projectId) {
             return Optional.ofNullable(projects.get(projectId));
         }

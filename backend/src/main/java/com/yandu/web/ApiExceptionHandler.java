@@ -11,6 +11,8 @@ import com.yandu.release.ReleaseApplicationService.ReleaseNotFoundException;
 import com.yandu.imports.ImportApplicationService.IdempotencyConflictException;
 import com.yandu.imports.ImportApplicationService.ImportJobNotFoundException;
 import com.yandu.imports.ImportApplicationService.ImportPreviewConflictException;
+import com.yandu.imports.ProjectMigrationApplicationService.MigrationConflictException;
+import com.yandu.imports.ProjectMigrationApplicationService.MigrationNotFoundException;
 import com.yandu.workspace.WorkspaceApplicationService.ProjectNotFoundException;
 import com.yandu.workspace.WorkspaceApplicationService.UserNotFoundException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -31,7 +33,8 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler({CatalogEntryNotFoundException.class, ProjectNotFoundException.class,
             UserNotFoundException.class, TranslationNotFoundException.class,
-            ReleaseNotFoundException.class, ImportJobNotFoundException.class})
+            ReleaseNotFoundException.class, ImportJobNotFoundException.class,
+            MigrationNotFoundException.class})
     ProblemDetail notFound(RuntimeException exception) {
         return problem(HttpStatus.NOT_FOUND, "Resource not found", exception.getMessage());
     }
@@ -64,8 +67,9 @@ public class ApiExceptionHandler {
     }
 
     @ExceptionHandler({IllegalStateException.class, ImportPreviewConflictException.class,
+            MigrationConflictException.class,
             IdempotencyConflictException.class})
-    ProblemDetail invalidTransition(IllegalStateException exception) {
+    ProblemDetail invalidTransition(RuntimeException exception) {
         return problem(HttpStatus.CONFLICT, "Invalid state transition", exception.getMessage());
     }
 

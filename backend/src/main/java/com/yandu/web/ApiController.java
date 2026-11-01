@@ -4,6 +4,7 @@ import com.yandu.catalog.CatalogEntryApplicationService;
 import com.yandu.identity.CurrentActor;
 import com.yandu.audit.AuditLog;
 import com.yandu.imports.ImportApplicationService;
+import com.yandu.imports.ProjectMigrationApplicationService;
 import com.yandu.release.ReleaseApplicationService;
 import com.yandu.translation.TranslationApplicationService;
 import com.yandu.workspace.WorkspaceApplicationService;
@@ -38,6 +39,7 @@ public class ApiController {
     private final TranslationApplicationService translations;
     private final ReleaseApplicationService releases;
     private final ImportApplicationService imports;
+    private final ProjectMigrationApplicationService migrations;
     private final AuditLog audit;
 
     public ApiController(CurrentActor actors, WorkspaceApplicationService workspace,
@@ -45,6 +47,7 @@ public class ApiController {
                          TranslationApplicationService translations,
                          ReleaseApplicationService releases,
                          ImportApplicationService imports,
+                         ProjectMigrationApplicationService migrations,
                          AuditLog audit) {
         this.actors = actors;
         this.workspace = workspace;
@@ -52,6 +55,7 @@ public class ApiController {
         this.translations = translations;
         this.releases = releases;
         this.imports = imports;
+        this.migrations = migrations;
         this.audit = audit;
     }
 
@@ -364,6 +368,35 @@ public class ApiController {
         return ResponseEntity.accepted().body(view);
     }
 
+    @PostMapping("/project-migrations/previews")
+    public ProjectMigrationApplicationService.MigrationView previewProjectMigration(
+            @AuthenticationPrincipal Jwt principal,
+            @Valid @RequestBody ProjectMigrationBody body) {
+        return migrations.preview(actors.resolve(principal), body.packageJson(), body.targetName());
+    }
+
+    @GetMapping("/project-migrations/{migrationId}")
+    public ProjectMigrationApplicationService.MigrationView projectMigration(
+            @AuthenticationPrincipal Jwt principal, @PathVariable long migrationId) {
+        return migrations.get(actors.resolve(principal), migrationId);
+    }
+
+    @PostMapping("/project-migrations/{migrationId}/apply")
+    public ResponseEntity<ProjectMigrationApplicationService.MigrationView> applyProjectMigration(
+            @AuthenticationPrincipal Jwt principal, @PathVariable long migrationId,
+            @Valid @RequestBody ImportApplicationService.ApplyBody body) {
+        return ResponseEntity.accepted().body(migrations.apply(
+                actors.resolve(principal), migrationId, body.previewHash()));
+    }
+
+    @PostMapping("/project-migrations/{migrationId}/retry")
+    public ResponseEntity<ProjectMigrationApplicationService.MigrationView> retryProjectMigration(
+            @AuthenticationPrincipal Jwt principal, @PathVariable long migrationId,
+            @Valid @RequestBody ImportApplicationService.ApplyBody body) {
+        return ResponseEntity.accepted().body(migrations.apply(
+                actors.resolve(principal), migrationId, body.previewHash()));
+    }
+
     @GetMapping("/projects/{projectId}/audit-log")
     public AuditLog.AuditPage auditHistory(
             @AuthenticationPrincipal Jwt principal,
@@ -417,6 +450,9 @@ public class ApiController {
 
     public record PreviewBody(long namespaceId, @NotBlank @Size(max = 35) String locale,
                               @jakarta.validation.constraints.NotNull String json) { }
+
+    public record ProjectMigrationBody(@NotBlank @Size(max = 5_500_000) String packageJson,
+                                       @Size(max = 120) String targetName) { }
 
     public record ApplyBody(@jakarta.validation.constraints.Pattern(regexp = "[a-f0-9]{64}")
                             String previewHash) { }
