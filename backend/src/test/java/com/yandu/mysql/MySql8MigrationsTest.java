@@ -410,28 +410,28 @@ class MySql8MigrationsTest {
         reviewerHeaders.setContentType(MediaType.APPLICATION_JSON);
         String reviewEndpoint = translationEndpoint + "/review";
         ResponseEntity<JsonNode> returned = http.postForEntity(reviewEndpoint,
-                new HttpEntity<>("{\"expectedVersion\":2,\"decision\":\"REQUEST_CHANGES\","
+                new HttpEntity<>("{\"expectedVersion\":3,\"decision\":\"REQUEST_CHANGES\","
                         + "\"reason\":\"请保留姓名占位符。\"}", reviewerHeaders), JsonNode.class);
         assertEquals(HttpStatus.OK, returned.getStatusCode());
         assertEquals("CHANGES_REQUESTED", returned.getBody().path("status").asText());
         assertEquals("请保留姓名占位符。", returned.getBody().path("latestReviewReason").asText());
 
         String revisedBody = json.writeValueAsString(java.util.Map.of(
-                "expectedVersion", 3, "basedOnSourceRevision", 1, "value", "Hello there, {name}"));
+                "expectedVersion", 4, "basedOnSourceRevision", 1, "value", "Hello there, {name}"));
         ResponseEntity<JsonNode> revised = http.exchange(translationEndpoint, HttpMethod.PUT,
                 new HttpEntity<>(revisedBody, headers), JsonNode.class);
         assertEquals(HttpStatus.OK, revised.getStatusCode());
-        assertEquals(4, revised.getBody().path("version").asInt());
+        assertEquals(5, revised.getBody().path("version").asInt());
         ResponseEntity<JsonNode> resubmitted = http.postForEntity(translationEndpoint + "/submit",
-                new HttpEntity<>("{\"expectedVersion\":4}", headers), JsonNode.class);
+                new HttpEntity<>("{\"expectedVersion\":5}", headers), JsonNode.class);
         assertEquals(HttpStatus.OK, resubmitted.getStatusCode());
-        assertEquals(5, resubmitted.getBody().path("version").asInt());
+        assertEquals(6, resubmitted.getBody().path("version").asInt());
         ResponseEntity<JsonNode> approved = http.postForEntity(reviewEndpoint,
-                new HttpEntity<>("{\"expectedVersion\":5,\"decision\":\"APPROVE\"}", reviewerHeaders),
+                new HttpEntity<>("{\"expectedVersion\":6,\"decision\":\"APPROVE\"}", reviewerHeaders),
                 JsonNode.class);
         assertEquals(HttpStatus.OK, approved.getStatusCode());
         assertEquals("APPROVED", approved.getBody().path("status").asText());
-        assertEquals(6, approved.getBody().path("version").asInt());
+        assertEquals(7, approved.getBody().path("version").asInt());
 
         ResponseEntity<JsonNode> audit = http.exchange("http://localhost:" + port + "/api/v1/projects/"
                         + projectId + "/audit-log?page=1&pageSize=50", HttpMethod.GET,
