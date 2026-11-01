@@ -4,6 +4,7 @@
 
 ## 当前实现进度
 
+- B04 译文版本冲突现由 MySQL 8.0.46 API 集成验证：先保存出新版本，再提交基于旧版本的译文，接口返回 409 并给出 `expectedVersion` / `actualVersion`，随后读取确认新译文未被旧请求覆盖。CI run `41292850395` 的 MySQL 迁移/API 测试、Java 模块、前端构建和 E2E 全部通过；本地 backend reactor 81 项测试通过（5 项 MySQL 集成因本机未启用数据库而跳过）。这是陈旧写入保护证据，不代表真实双用户同时编辑、部署身份提供方或高并发已验收。
 - B13 机器翻译失败重试已加入 MySQL 8.0.46 API 集成路径：注入一次 provider 失败，验证任务进入部分失败、失败项保留可读原因；调用重试 API 后由 worker 再执行并完成，确认条目结果正确回填。CI run `41292341086` 的 MySQL/Flyway、Java 模块、前端构建及 E2E 步骤全部通过；本地 JDK 21 backend reactor 81 项测试通过（5 项需 MySQL 的测试在本地跳过）。该 provider 使用测试替身，真实外部翻译服务仍未验证。
 - B07 导入闭环新增 MySQL API 集成覆盖：受保护路由提交扁平源文 JSON、相同幂等键重放复用预览、同键不同内容冲突、按预览摘要确认、后台 worker 回填源词条并经 API 查询状态，最后检查 MySQL 行确保没有重复词条。扩展还在 worker 执行前归档空命名空间以产生可重试失败，恢复后通过 API 重试并确认成功回填。另覆盖目标语言导入：未知源键预览为冲突且确认被拒，已有源词条导入后保存为指定目标语言草稿。JDK 21 backend reactor 81 项本地测试通过；GitHub Actions MySQL 8.0.46 run `41289563436` 验证扩展的源/目标语言导入路径，Node 22 构建与 E2E 也通过。实际浏览器 API 模式仍需补验。
 - 发布任务的 MySQL 集成路径已提升到 HTTP 边界：使用测试身份访问受保护的发布 API，重复 POST 同一幂等键后从任务查询 API 轮询真实 MySQL worker 结果，再验证快照发布及 Netty/WebSocket 通知。测试只替换 JWT 解码器，不扩展身份/用户功能；本地后端 reactor 80 项测试通过，其中 MySQL 集成 4 项因未启用真实数据库而跳过；GitHub Actions MySQL 8.0.46 工作流 run `41288322911` 全部通过（含 Java/MySQL 和前端/E2E 步骤）。
