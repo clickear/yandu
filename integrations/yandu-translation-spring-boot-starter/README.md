@@ -4,18 +4,17 @@ Base consumer integration module for Spring Boot 3.5 / Java 21 applications. It 
 
 ## Build and install locally
 
+The root Maven project aggregates the backend and consumer artifacts without making the backend depend on consumer transports. Build the base starter and only the selected transport from the repository root:
+
 ```sh
-mvn install
+mvn -pl integrations/yandu-translation-spring-boot-starter -am install
 ```
 
-The backend application is in `backend/`; the base starter and transport adapters are independent Maven artifacts. They are not included in the backend Maven build.
-
-For real-time modes, install the base starter first, then install only the matching optional module:
+For a real-time mode, select its artifact; Maven builds the base starter transitively. These commands are alternatives, so a consumer only installs the transport it uses:
 
 ```sh
-cd integrations/yandu-translation-spring-boot-starter && mvn install
-cd ../yandu-translation-sync-netty && mvn install
-cd ../yandu-translation-sync-websocket && mvn install
+mvn -pl integrations/yandu-translation-sync-netty -am install
+mvn -pl integrations/yandu-translation-sync-websocket -am install
 ```
 
 The Netty adapter brings Netty dependencies. The WebSocket adapter uses the JDK WebSocket client and adds no Netty dependency.

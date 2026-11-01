@@ -21,6 +21,8 @@ npm run dev
 
 要连接服务端，复制 `.env.example` 为 `.env`，配置 `VITE_YANDU_API_URL`、OIDC authority 和公开 SPA client ID；按 [后端说明](backend/README.md) 配置 MySQL 8.0、issuer、audience 和 CORS 后启动服务。OIDC 回调 URI 必须在身份提供方登记。服务端模式只显示 API 数据，不使用本地示例项目。
 
+Java 后端与消费者 Starter 由根目录 Maven reactor 聚合构建。消费者只需加入基础 Starter；若选择实时同步，再按配置选择 Netty 或 WebSocket 对应模块，不会因使用一种方式而引入另一种实现。依赖选择与安装命令见 [消费者 Starter 说明](integrations/yandu-translation-spring-boot-starter/README.md)。
+
 ## 已实现
 
 - 创建项目、切换项目、选择源语言及添加目标语言。
