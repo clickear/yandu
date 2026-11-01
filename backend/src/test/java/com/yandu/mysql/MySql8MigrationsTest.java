@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.BDDMockito.given;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -26,8 +27,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
@@ -55,6 +63,7 @@ class MySql8MigrationsTest {
     @Autowired private TestRestTemplate http;
     @Autowired private ObjectMapper json;
     @Autowired private ReleaseApplicationService releases;
+    @MockitoBean private JwtDecoder jwtDecoder;
     @LocalServerPort private int port;
 
     @Test
@@ -231,7 +240,7 @@ class MySql8MigrationsTest {
                     """);
         }
 
-        var firstJob = publishJobAndAwait(actorId, projectId, "sync-initial");
+        var firstJob = publishJobAndAwait(projectId, "sync-initial");
         String initialReleaseId = firstJob.releaseId();
         String initialChecksum = latestChecksum(projectId, "fr-FR");
         String endpoint = "http://localhost:" + port + "/api/v1/public/projects/" + projectId
@@ -294,7 +303,7 @@ class MySql8MigrationsTest {
                     """)) {
                 assertEquals(1, insert.executeUpdate());
             }
-            var latestJob = publishJobAndAwait(actorId, projectId, "sync-updated");
+            var latestJob = publishJobAndAwait(projectId, "sync-updated");
             String latestReleaseId = latestJob.releaseId();
             String latestChecksum = latestChecksum(projectId, "fr-FR");
 
@@ -313,23 +322,45 @@ class MySql8MigrationsTest {
         }
     }
 
-    private ReleaseApplicationService.ReleaseJobView publishJobAndAwait(long actorId, long projectId,
-                                                                         String idempotencyKey)
+    private ReleaseApplicationService.ReleaseJobView publishJobAndAwait(long projectId, String idempotencyKey)
             throws InterruptedException {
-        var command = new ReleaseApplicationService.PublishRelease(
-                actorId, projectId, "fr-FR", ReleaseApplicationService.JSON_FLAT);
-        var created = releases.requestPublish(command, idempotencyKey);
-        var duplicate = releases.requestPublish(command, idempotencyKey);
-        assertEquals(created.id(), duplicate.id(), "repeating the publish request must reuse its job");
+        // A single verified test principal exercises the protected HTTP boundary without configuring a real IdP.
+        String token = "mysql-release-integration-token";
+        var now = java.time.Instant.now();
+        given(jwtDecoder.decode(token)).willReturn(Jwt.withTokenValue(token)
+                .header("alg", "RS256")
+                .issuer("https://issuer.example.test")
+                .subject("sync-consumer")
+                .audience(java.util.List.of("yandu-api"))
+                .issuedAt(now)
+                .expiresAt(now.plusSeconds(300))
+                .build());
+        String endpoint = "http://localhost:" + port + "/api/v1/projects/" + projectId + "/releases";
+        HttpHeaders requestHeaders = new HttpHeaders();
+        requestHeaders.setBearerAuth(token);
+        requestHeaders.set("Idempotency-Key", idempotencyKey);
+        requestHeaders.setContentType(MediaType.APPLICATION_JSON);
+        var request = new HttpEntity<>("{\"locale\":\"fr-FR\",\"format\":\"json-flat-v1\"}", requestHeaders);
+        ResponseEntity<JsonNode> created = http.exchange(endpoint, HttpMethod.POST, request, JsonNode.class);
+        ResponseEntity<JsonNode> duplicate = http.exchange(endpoint, HttpMethod.POST, request, JsonNode.class);
+        assertEquals(HttpStatus.ACCEPTED, created.getStatusCode());
+        String jobId = created.getBody().path("id").asText();
+        assertEquals(jobId, duplicate.getBody().path("id").asText(),
+                "repeating the HTTP publish request must reuse its job");
         releases.dispatchQueuedJobs();
 
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
         while (System.nanoTime() < deadline) {
-            var current = releases.getJob(actorId, projectId, Long.parseLong(created.id()));
-            if ("COMPLETED".equals(current.status())) return current;
-            if ("FAILED".equals(current.status())) {
-                throw new AssertionError("Release job failed: " + current.error());
-            }
+            HttpHeaders pollHeaders = new HttpHeaders();
+            pollHeaders.setBearerAuth(token);
+            ResponseEntity<JsonNode> current = http.exchange("http://localhost:" + port + "/api/v1/projects/"
+                            + projectId + "/releases/jobs/" + jobId,
+                    HttpMethod.GET, new HttpEntity<>(pollHeaders), JsonNode.class);
+            assertEquals(HttpStatus.OK, current.getStatusCode());
+            String status = current.getBody().path("status").asText();
+            if ("COMPLETED".equals(status)) return json.convertValue(current.getBody(),
+                    ReleaseApplicationService.ReleaseJobView.class);
+            if ("FAILED".equals(status)) throw new AssertionError("Release job failed: " + current.getBody());
             Thread.sleep(25);
         }
         throw new AssertionError("Release job did not complete before the integration-test deadline");
