@@ -2254,7 +2254,9 @@ export default function App() {
             <p className="form-hint">
               格式示例：<code>{'{"home.title": "Welcome"}'}</code>
               <br />
-              同名键会更新所选语言，其他键与语言保留。目标语言中新键的源文案留空；更改源文案会清除已有译文的审核标记。请先导出备份。
+              {backendEnabled && importLocale !== project.sourceLanguage
+                ? '服务端目标语言导入仅支持源目录中已有的词条；未知键会作为冲突列出。导入内容保存为草稿，不会修改源文案。'
+                : '同名键会更新所选语言，其他键与语言保留。目标语言中新键的源文案留空；更改源文案会让已有译文需要复核。请先导出备份。'}
             </p>
             {backendEnabled && importPreview && (
               <div className="import-preview" aria-live="polite">

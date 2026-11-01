@@ -4,7 +4,7 @@
 
 ## 当前实现进度
 
-- B07 导入闭环新增 MySQL API 集成覆盖：受保护路由提交扁平源文 JSON、相同幂等键重放复用预览、同键不同内容冲突、按预览摘要确认、后台 worker 回填源词条并经 API 查询状态，最后检查 MySQL 行确保没有重复词条。扩展还在 worker 执行前归档空命名空间以产生可重试失败，恢复后通过 API 重试并确认成功回填。JDK 21 backend reactor 81 项本地测试通过；GitHub Actions MySQL 8.0.46 run `41289006593`（含 MySQL/Java 和 Node 22 前端检查、构建与 E2E）全部通过。目标语言导入和实际浏览器 API 模式仍需补验。
+- B07 导入闭环新增 MySQL API 集成覆盖：受保护路由提交扁平源文 JSON、相同幂等键重放复用预览、同键不同内容冲突、按预览摘要确认、后台 worker 回填源词条并经 API 查询状态，最后检查 MySQL 行确保没有重复词条。扩展还在 worker 执行前归档空命名空间以产生可重试失败，恢复后通过 API 重试并确认成功回填。服务端目标语言导入现在明确提示“未知键会冲突”，避免误以为可直接创建没有源文案的词条；当前提示变更的 Node 22 CI 待验证。JDK 21 backend reactor 81 项本地测试通过；GitHub Actions MySQL 8.0.46 run `41289006593`（未包含本次提示编辑）其余 Java/MySQL 和 Node 22 检查、构建与 E2E 全部通过。目标语言实际浏览器 API 模式仍需补验。
 - 发布任务的 MySQL 集成路径已提升到 HTTP 边界：使用测试身份访问受保护的发布 API，重复 POST 同一幂等键后从任务查询 API 轮询真实 MySQL worker 结果，再验证快照发布及 Netty/WebSocket 通知。测试只替换 JWT 解码器，不扩展身份/用户功能；本地后端 reactor 80 项测试通过，其中 MySQL 集成 4 项因未启用真实数据库而跳过；GitHub Actions MySQL 8.0.46 工作流 run `41288322911` 全部通过（含 Java/MySQL 和前端/E2E 步骤）。
 - 机器翻译基础依赖按功能模块拆分：provider 端口位于 `yandu-machine-translation-contract`，LibreTranslate 与 OpenAI-compatible 分别位于可选 Maven 实现模块，通过 `machine-translation-libretranslate` / `machine-translation-openai-compatible` profiles 引入；backend 单独构建不再包含具体 HTTP provider 实现。两实现可同时引入，`YANDU_MT_PROVIDER` 选择已安装的实现；未安装时服务明确返回不可用。两适配器本地 HTTP 协议测试和 JDK 21 backend 全套 70 项测试均通过；MySQL/API 工作流无需重测，本次没有改业务持久化。
 - Release 的幂等发布创建现在覆盖 MySQL `REPEATABLE READ` 并发竞态：唯一键插入失败后用 `SELECT ... FOR UPDATE` 做当前读，读取并复用并发提交的同一任务；请求摘要不同仍返回冲突。新增的应用服务用例覆盖该竞态；JDK 21 默认 backend reactor 的 71 项测试通过，React/TypeScript 生产构建通过。当前环境没有 MySQL 客户端/服务端、容器工具或 3306 监听，实际 MySQL 并发事务仍待 MySQL 8.0 实例补验。
