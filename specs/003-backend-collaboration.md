@@ -68,7 +68,7 @@ JSON 导入任务工作台可读取项目最近 20 项任务，查看新增/更�
 
 发布消费端 B14 已有匿名只读的 latest 元数据/内容 API，以及独立 `integrations/yandu-translation-spring-boot-starter` Maven artifact。Starter 支持 JSON Flat v1 与 Java Properties v1，下载前读取元数据、校验 SHA-256 后原子替换内存快照；失败时保留旧快照并重试。B15 的 Netty TCP 与 WebSocket 服务端通知和可配置客户端已实现；各传输客户端位于单独 Maven 模块，基础 Starter 不引入 Netty。后端包含真实 Netty socket 和 WebSocket handler 测试，消费者 Netty/WebSocket 模块均有本地协议测试。MySQL 8.0.46 GitHub Actions 已通过发布 API、匿名快照接口及 Netty/WebSocket 通知的集成检查；artifact 尚未发布到公共 Maven 仓库，starter 消费端的完整运行部署验收仍未完成。
 
-前端 API 模式有独立 Playwright 浏览器回归，覆盖机器翻译失败原因展示、失败项重试、轮询状态接口短暂故障提示及恢复、完成状态和从结果定位到词条；该测试使用测试 OIDC 会话与 mocked API contract fixture，不代表已通过真实身份提供方或前端直连 MySQL 后端的端到端验证。
+前端 API 模式有独立 Playwright 浏览器回归，覆盖机器翻译失败原因展示、失败项重试、轮询状态接口短暂故障提示及恢复、回填结果定位、译文草稿修订、刷新后的会话草稿恢复和送审；该测试使用测试 OIDC 会话与 mocked API contract fixture，不代表已通过真实身份提供方或前端直连 MySQL 后端的端到端验证。
 
 机器翻译通过可配置 HTTP provider 纳入主流程，支持 LibreTranslate-compatible `/translate` 及 OpenAI-compatible Chat Completions（可接大模型 API 或第三方兼容网关）。provider port、LibreTranslate 实现与 OpenAI-compatible 实现位于独立 Maven 模块；部署构建显式选择 provider 模块，再设置 `YANDU_MT_PROVIDER`、`YANDU_MT_BASE_URL`，大模型还需 `YANDU_MT_MODEL`；必要时设置服务端 `YANDU_MT_API_KEY`。未引入实现或未配置 provider 时返回 503，不创建任务。可为当前目标语言创建幂等异步任务，最多四个 worker 并发执行，按词条展示进度/失败并重试；空 provider 结果记录为失败，不创建空译文；有效结果只写入草稿，回填时锁源词条并比较源修订、译文版本和空值，版本变化或人工已译时跳过。MySQL 8.0.46 上 V1–V9 已执行；本地数据库端到端 API 流程验证了幂等创建、机器结果草稿回填、人工修订/审核和发布导出，CI run `41292341086` 进一步通过 HTTP/MyBatis/MySQL 验证 provider 失败记录及重试后回填成功。CI run `41292850395` 验证陈旧译文版本写入返回 409 且不会覆盖已保存译文；run `41293186041` 验证队列期间源文更新或人工先行编辑时 worker 跳过旧结果且保留人工译文。自动化集成使用 provider 测试替身；真实外部 provider 调用、部署 IdP、真实双用户同时编辑和多实例并发仍未验证。
 

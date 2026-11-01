@@ -4,7 +4,7 @@
 
 ## 当前实现进度
 
-- 前端 API 模式补充定向 Playwright 流程：写入测试 OIDC 会话并用 API contract fixture 验证工作台展示机器翻译失败原因、允许重试、轮询中断时显示可恢复错误并在服务恢复后清除，最终显示“已回填草稿”并可定位到对应词条。GitHub Actions run `41294081841` 的完整 CI 及该 E2E 通过；fixture 返回预置 API 响应，仅证明前端任务状态/错误恢复交互和导航，不作为真实 OIDC 或 API/MySQL 集成证据。
+- 前端 API 模式补充定向 Playwright 流程：写入测试 OIDC 会话并用 API contract fixture 验证工作台展示机器翻译失败原因、允许重试、轮询中断时显示可恢复错误并在服务恢复后清除，最终显示“已回填草稿”并定位到词条；随后译员修订草稿、刷新页面恢复未保存内容并成功送审。本地 Node 22 定向 E2E 通过。fixture 返回预置 API 响应，仅证明前端状态/错误恢复和编辑交互，不作为真实 OIDC 或 API/MySQL 集成证据。
 - B13 回填保护新增 MySQL 8.0.46 API 验收：任务入队后分别修改源文案、人工保存另一条译文，再执行 worker；两项均以 `SKIPPED` 结束，返回对应原因，MySQL 中未产生旧源文译文且人工译文保持原值。CI run `41293186041` 的后端/MySQL、前端构建与 E2E 全部通过；本地 backend reactor 82 项测试通过（6 项 MySQL 集成在本地未启用数据库时跳过）。该确定性先后顺序检查不等同于多实例并发压力测试。
 - B04 译文版本冲突现由 MySQL 8.0.46 API 集成验证：先保存出新版本，再提交基于旧版本的译文，接口返回 409 并给出 `expectedVersion` / `actualVersion`，随后读取确认新译文未被旧请求覆盖。CI run `41292850395` 的 MySQL 迁移/API 测试、Java 模块、前端构建和 E2E 全部通过；本地 backend reactor 81 项测试通过（5 项 MySQL 集成因本机未启用数据库而跳过）。这是陈旧写入保护证据，不代表真实双用户同时编辑、部署身份提供方或高并发已验收。
 - B13 机器翻译失败重试已加入 MySQL 8.0.46 API 集成路径：注入一次 provider 失败，验证任务进入部分失败、失败项保留可读原因；调用重试 API 后由 worker 再执行并完成，确认条目结果正确回填。CI run `41292341086` 的 MySQL/Flyway、Java 模块、前端构建及 E2E 步骤全部通过；本地 JDK 21 backend reactor 81 项测试通过（5 项需 MySQL 的测试在本地跳过）。该 provider 使用测试替身，真实外部翻译服务仍未验证。
