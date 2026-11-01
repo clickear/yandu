@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -25,6 +26,7 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.TaskExecutor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.PlatformTransactionManager;
 
 class ImportTest {
@@ -88,6 +90,29 @@ class ImportTest {
         assertEquals("PREVIEW_READY", jobs.getFirst().status());
         assertEquals(1, jobs.getFirst().updated());
         assertEquals(0, jobs.getFirst().conflicts());
+    }
+
+    @Test
+    void concurrentIdenticalPreviewReturnsTheWinningIdempotentJob() throws Exception {
+        var now = Instant.parse("2026-01-01T00:00:00Z");
+        var previewData = new ImportApplicationService.PreviewData("zh-CN", "10", 7,
+                List.of(), 0, 0, 0, 0);
+        var winner = new ImportRepository.Job(700L, 10L, 10L, "zh-CN", 7,
+                "request-0001", "{\"home.title\":\"新文案\"}",
+                new ObjectMapper().writeValueAsString(previewData), "a".repeat(64),
+                "PREVIEW_READY", 41L, now, now, null, 0);
+        doThrow(new DataIntegrityViolationException("duplicate idempotency key"))
+                .when(imports).insert(any());
+        given(imports.findByIdempotencyKeyForUpdate(10L, "request-0001"))
+                .willReturn(Optional.of(winner));
+
+        var result = service.preview(new ImportApplicationService.CreatePreview(41L, 10L, 10L,
+                "zh-CN", "request-0001", "{\"home.title\":\"新文案\"}"));
+
+        assertEquals("700", result.id());
+        assertEquals(winner.previewHash(), result.previewHash());
+        assertEquals("PREVIEW_READY", result.status());
+        verify(imports).findByIdempotencyKeyForUpdate(10L, "request-0001");
     }
 
     @Test

@@ -14,6 +14,9 @@ public interface ImportRepository {
 
     Optional<Job> findByIdempotencyKey(long projectId, String idempotencyKey);
 
+    /** Current locking read used only after an insert loses an idempotency-key race. */
+    Optional<Job> findByIdempotencyKeyForUpdate(long projectId, String idempotencyKey);
+
     List<JobSummary> findRecent(long projectId, int limit);
 
     List<Job> findQueued(int limit);

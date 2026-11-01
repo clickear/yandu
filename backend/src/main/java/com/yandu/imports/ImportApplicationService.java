@@ -30,6 +30,7 @@ import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -90,12 +91,7 @@ public class ImportApplicationService {
         var payloadJson = serialize(payload);
         var existingJob = imports.findByIdempotencyKey(command.projectId(), command.idempotencyKey());
         if (existingJob.isPresent()) {
-            var job = existingJob.get();
-            if (!job.payloadJson().equals(payloadJson) || job.namespaceId() != command.namespaceId()
-                    || !job.locale().equals(locale)) {
-                throw new IdempotencyConflictException(command.idempotencyKey());
-            }
-            return view(job);
+            return existingPreview(existingJob.get(), command, payloadJson, locale);
         }
 
         var entries = findCatalogEntries(command.actorId(), command.projectId());
@@ -121,10 +117,24 @@ public class ImportApplicationService {
         var job = new Job(ids.getAsLong(), command.projectId(), command.namespaceId(), locale,
                 project.version(), command.idempotencyKey(), payloadJson, previewJson,
                 sha256(previewJson), "PREVIEW_READY", command.actorId(), now, now, null, 0);
-        imports.insert(job);
+        try {
+            imports.insert(job);
+        } catch (DataIntegrityViolationException duplicateSubmission) {
+            var winner = imports.findByIdempotencyKeyForUpdate(command.projectId(), command.idempotencyKey())
+                    .orElseThrow(() -> duplicateSubmission);
+            return existingPreview(winner, command, payloadJson, locale);
+        }
         audit.record(command.projectId(), command.actorId(), "IMPORT_PREVIEW_CREATED", "IMPORT_JOB",
                 job.id(), Map.of("locale", locale, "added", data.added(), "updated", data.updated(),
                         "conflicts", data.conflicts()));
+        return view(job);
+    }
+
+    private ImportJobView existingPreview(Job job, CreatePreview command, String payloadJson, String locale) {
+        if (!job.payloadJson().equals(payloadJson) || job.namespaceId() != command.namespaceId()
+                || !job.locale().equals(locale)) {
+            throw new IdempotencyConflictException(command.idempotencyKey());
+        }
         return view(job);
     }
 

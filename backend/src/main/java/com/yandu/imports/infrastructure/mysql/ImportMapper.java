@@ -70,6 +70,9 @@ public interface ImportMapper extends BaseMapper<ImportMapper.ImportJobRow> {
     @Select("SELECT * FROM import_jobs WHERE project_id = #{projectId} AND idempotency_key = #{key}")
     ImportJobRow findByKey(@Param("projectId") long projectId, @Param("key") String key);
 
+    @Select("SELECT * FROM import_jobs WHERE project_id = #{projectId} AND idempotency_key = #{key} FOR UPDATE")
+    ImportJobRow findByKeyForUpdate(@Param("projectId") long projectId, @Param("key") String key);
+
     @Select("SELECT id, locale, status, preview_hash, error, created_at, updated_at, "
             + "CAST(JSON_UNQUOTE(JSON_EXTRACT(preview_json, '$.added')) AS UNSIGNED) AS added, "
             + "CAST(JSON_UNQUOTE(JSON_EXTRACT(preview_json, '$.updated')) AS UNSIGNED) AS updated, "

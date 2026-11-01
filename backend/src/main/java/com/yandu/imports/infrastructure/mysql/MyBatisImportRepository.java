@@ -24,6 +24,9 @@ public class MyBatisImportRepository implements ImportRepository, ImportReposito
     @Override public Optional<Job> findByIdempotencyKey(long projectId, String key) {
         return Optional.ofNullable(mapper.findByKey(projectId, key)).map(this::job);
     }
+    @Override public Optional<Job> findByIdempotencyKeyForUpdate(long projectId, String key) {
+        return Optional.ofNullable(mapper.findByKeyForUpdate(projectId, key)).map(this::job);
+    }
     @Override public List<JobSummary> findRecent(long projectId, int limit) {
         return mapper.findRecent(projectId, limit).stream().map(row -> new JobSummary(
                 row.getId(), row.getLocale(), row.getStatus(), row.getPreviewHash(), row.getAdded(),
