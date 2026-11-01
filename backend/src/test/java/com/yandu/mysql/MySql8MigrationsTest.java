@@ -407,6 +407,7 @@ class MySql8MigrationsTest {
             }
         }
         HttpHeaders reviewerHeaders = authenticatedHeaders("mysql-import-reviewer-token", "import-reviewer");
+        reviewerHeaders.setContentType(MediaType.APPLICATION_JSON);
         String reviewEndpoint = translationEndpoint + "/review";
         ResponseEntity<JsonNode> returned = http.postForEntity(reviewEndpoint,
                 new HttpEntity<>("{\"expectedVersion\":2,\"decision\":\"REQUEST_CHANGES\","
