@@ -174,6 +174,10 @@ public class MachineTranslationApplicationService {
             finish(item, "FAILED", "机器翻译服务调用失败，请稍后重试。");
             return;
         }
+        if (translated == null || translated.isBlank()) {
+            finish(item, "FAILED", "机器翻译服务返回了空译文，请检查服务后重试。");
+            return;
+        }
 
         try {
             transactions.executeWithoutResult(transaction -> {

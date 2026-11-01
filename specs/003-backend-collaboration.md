@@ -45,9 +45,9 @@ Spring Boot、Spring Modulith 与 Spring Security 的选择依据及其职责边
 
 当前代码建立了通用 OIDC JWT 身份解析、项目成员角色授权、Workspace、Catalog、Translation、Import、Release、AuditLog 模块及 `/api/v1` REST API。前端支持显式 API 模式、OIDC 登录、项目与成员管理、译文保存/送审/通过/退回及状态筛选；译文详情返回最新审核决定和退回原因，译者可在编辑界面查看反馈；源文修改/历史/归档、术语与翻译记忆建议、JSON 差异预览与异步导入、异步发布状态与重试、可跨会话查询的发布任务历史、发布历史查询/下载/回滚以及 JSON/Java Properties 发布；发布历史校验和元数据不包含完整资源正文。未配置服务端时保留本地原型。已加入版本 1 的本地项目迁移包预览、确认、幂等异步分批迁移、进度和本地/服务端词条 ID 映射查询，以及迁移失败后同包重试；迁移期间项目保持隐藏。服务端提供公开 liveness/readiness 探针，readiness 检查 MySQL 连通性且不公开组件详情。隔离 MySQL 8.0.46 实例已成功执行 Flyway V1–V9 并启动应用，`/readyz` 返回 `UP`；使用本地 RS256 测试身份和协议 stub 对真实 API/数据库完成机器翻译、人工审核和发布导出闭环。真实部署 OIDC、外部翻译服务、多实例/规模并发和正式备份恢复演练仍未验证。租户模式和 Outbox 本期不实现。
 
-Workspace 生命周期切片已补齐：项目创建默认配置一个目标语言并接受描述；项目和目标语言可归档/恢复（至少一个活动目标语言），归档项目在成员列表可见且可读历史；成员角色可调整/移除/主动离开，Owner 可转让给现有 Admin；Owner/Admin/Translator/Reviewer/Viewer 规则由 Project 聚合校验，项目归档与成员操作写审计。后端 37 项测试（含 Spring Modulith 边界检查）与前端生产构建通过；V6 MySQL 迁移尚未在 MySQL 8.0 实例执行。
+Workspace 生命周期切片已补齐：项目创建默认配置一个目标语言并接受描述；项目和目标语言可归档/恢复（至少一个活动目标语言），归档项目在成员列表可见且可读历史；成员角色可调整/移除/主动离开，Owner 可转让给现有 Admin；Owner/Admin/Translator/Reviewer/Viewer 规则由 Project 聚合校验，项目归档与成员操作写审计。后端 37 项测试（含 Spring Modulith 边界检查）与前端生产构建通过；V6 已在隔离 MySQL 8.0.46 的 V1–V9 执行中验证，双用户授权矩阵与归档并发仍需专项验收。
 
-机器翻译通过可配置 HTTP provider 纳入主流程，支持 LibreTranslate-compatible `/translate` 及 OpenAI-compatible Chat Completions（可接大模型 API 或第三方兼容网关）。设置 `YANDU_MT_PROVIDER`、`YANDU_MT_BASE_URL`，大模型还需 `YANDU_MT_MODEL`；必要时设置服务端 `YANDU_MT_API_KEY`。可为当前目标语言创建幂等异步任务，最多四个 worker 并发执行，按词条展示进度/失败并重试；结果只写入草稿，回填时锁源词条并比较源修订、译文版本和空值，版本变化或人工已译时跳过。provider 未配置时返回 503，不创建任务。MySQL 8.0.46 上 V1–V9 已执行；本地数据库端到端 API 流程验证了幂等创建、机器结果草稿回填、人工修订/审核和发布导出，协议 stub 下人工编辑与源版本竞争均安全跳过。真实外部 provider 调用、部署 IdP 和多实例并发仍未验证。
+机器翻译通过可配置 HTTP provider 纳入主流程，支持 LibreTranslate-compatible `/translate` 及 OpenAI-compatible Chat Completions（可接大模型 API 或第三方兼容网关）。设置 `YANDU_MT_PROVIDER`、`YANDU_MT_BASE_URL`，大模型还需 `YANDU_MT_MODEL`；必要时设置服务端 `YANDU_MT_API_KEY`。可为当前目标语言创建幂等异步任务，最多四个 worker 并发执行，按词条展示进度/失败并重试；空 provider 结果记录为失败，不创建空译文；有效结果只写入草稿，回填时锁源词条并比较源修订、译文版本和空值，版本变化或人工已译时跳过。provider 未配置时返回 503，不创建任务。MySQL 8.0.46 上 V1–V9 已执行；本地数据库端到端 API 流程验证了幂等创建、机器结果草稿回填、人工修订/审核和发布导出，协议 stub 下人工编辑与源版本竞争均安全跳过。真实外部 provider 调用、部署 IdP 和多实例并发仍未验证。
 
 工程取舍：优先沿现有模块扩展，不为单一小操作拆出一组类型或单独测试类。用例验证按大模块集中执行；小改动先做编译和差异检查，避免频繁运行全套测试。
 

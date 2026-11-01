@@ -149,6 +149,26 @@ class MachineTranslationApplicationServiceTest {
                 org.mockito.ArgumentMatchers.isNull(), any());
     }
 
+    @Test
+    void emptyProviderResultFailsTheItemWithoutCreatingAnEmptyDraft() {
+        var item = claimedItem(1);
+        var worker = new AtomicReference<Runnable>();
+        when(provider.isConfigured()).thenReturn(true);
+        when(jobs.claimNext(any())).thenReturn(Optional.of(item));
+        doAnswer(invocation -> { worker.set(invocation.getArgument(0)); return null; })
+                .when(executor).execute(any(Runnable.class));
+        when(provider.translate("你好", "zh-CN", "en-US")).thenReturn("  \n");
+
+        service.dispatchQueuedItems();
+        worker.get().run();
+
+        verify(translations, never()).saveMachineDraft(any());
+        verify(jobs).completeItem(org.mockito.ArgumentMatchers.eq(900L),
+                org.mockito.ArgumentMatchers.eq(501L), org.mockito.ArgumentMatchers.eq(1),
+                org.mockito.ArgumentMatchers.eq("FAILED"),
+                org.mockito.ArgumentMatchers.eq("机器翻译服务返回了空译文，请检查服务后重试。"), any());
+    }
+
     private static MachineTranslationRepository.JobItem claimedItem(int attempt) {
         return new MachineTranslationRepository.JobItem(900L, 101L, "zh-CN", "en-US", 501L,
                 301L, "home.title", "你好", 1L, null, 11L, attempt, "RUNNING", null);
