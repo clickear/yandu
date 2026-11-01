@@ -1,6 +1,7 @@
 package com.yandu.mysql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,6 +10,7 @@ import static org.mockito.BDDMockito.given;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yandu.imports.infrastructure.mysql.ImportMapper;
+import com.yandu.imports.ImportApplicationService;
 import com.yandu.release.ReleaseApplicationService;
 import com.yandu.translation.infrastructure.mysql.MachineTranslationMapper;
 import com.yandu.translation.infrastructure.mysql.TranslationMapper;
@@ -47,6 +49,7 @@ import java.util.concurrent.TimeUnit;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.security.oauth2.resourceserver.jwt.issuer-uri=https://issuer.example.test",
         "spring.security.oauth2.resourceserver.jwt.audiences=yandu-api",
+        "yandu.import.poll-ms=60000",
         "yandu.sync.netty.enabled=true",
         "yandu.sync.netty.port=19091",
         "yandu.sync.websocket.enabled=true"
@@ -63,6 +66,7 @@ class MySql8MigrationsTest {
     @Autowired private TestRestTemplate http;
     @Autowired private ObjectMapper json;
     @Autowired private ReleaseApplicationService releases;
+    @Autowired private ImportApplicationService importJobs;
     @MockitoBean private JwtDecoder jwtDecoder;
     @LocalServerPort private int port;
 
@@ -182,6 +186,112 @@ class MySql8MigrationsTest {
         assertEquals(content, snapshot.getBody());
         assertEquals(checksum, HexFormat.of().formatHex(
                 MessageDigest.getInstance("SHA-256").digest(snapshot.getBody().getBytes(StandardCharsets.UTF_8))));
+    }
+
+    @Test
+    void sourceJsonImportPreviewIsIdempotentAndAppliesThroughMysqlWorker() throws Exception {
+        long projectId = 940_000_000_000_002L;
+        long namespaceId = 940_000_000_000_003L;
+        String subject = "import-owner";
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO external_identities (user_id, issuer, subject, created_at)
+                    VALUES (940000000000001, 'https://issuer.example.test', 'import-owner', UTC_TIMESTAMP(6))
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO projects (id, owner_id, name, source_locale, version, status, created_at, updated_at)
+                    VALUES (940000000000002, 940000000000001, 'JSON import check', 'zh-CN', 1, 'ACTIVE',
+                            UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO project_languages (project_id, locale, created_at)
+                    VALUES (940000000000002, 'en-US', UTC_TIMESTAMP(6))
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO project_members (project_id, user_id, role, created_at)
+                    VALUES (940000000000002, 940000000000001, 'OWNER', UTC_TIMESTAMP(6))
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO namespaces (id, project_id, name, status, created_by, created_at)
+                    VALUES (940000000000003, 940000000000002, 'default', 'ACTIVE',
+                            940000000000001, UTC_TIMESTAMP(6))
+                    """);
+        }
+
+        HttpHeaders headers = authenticatedHeaders("mysql-import-integration-token", subject);
+        headers.set("Idempotency-Key", "source-import-940");
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        String previewEndpoint = "http://localhost:" + port + "/api/v1/projects/" + projectId
+                + "/imports/previews";
+        String payload = "{\"home.title\":\"欢迎\",\"home.subtitle\":\"请登录\"}";
+        String body = json.writeValueAsString(java.util.Map.of(
+                "namespaceId", namespaceId, "locale", "zh-CN", "json", payload));
+        var previewRequest = new HttpEntity<>(body, headers);
+        ResponseEntity<JsonNode> preview = http.postForEntity(previewEndpoint, previewRequest, JsonNode.class);
+        ResponseEntity<JsonNode> replay = http.postForEntity(previewEndpoint, previewRequest, JsonNode.class);
+        assertEquals(HttpStatus.OK, preview.getStatusCode());
+        assertEquals("PREVIEW_READY", preview.getBody().path("status").asText());
+        assertEquals(2, preview.getBody().path("preview").path("added").asInt());
+        String jobId = preview.getBody().path("id").asText();
+        assertEquals(jobId, replay.getBody().path("id").asText(),
+                "same project key and payload must reuse the saved preview");
+
+        String changedBody = json.writeValueAsString(java.util.Map.of(
+                "namespaceId", namespaceId, "locale", "zh-CN", "json", "{\"home.title\":\"别的内容\"}"));
+        ResponseEntity<JsonNode> conflict = http.postForEntity(previewEndpoint,
+                new HttpEntity<>(changedBody, headers), JsonNode.class);
+        assertEquals(HttpStatus.CONFLICT, conflict.getStatusCode());
+
+        String applyEndpoint = "http://localhost:" + port + "/api/v1/projects/" + projectId
+                + "/imports/" + jobId + "/apply";
+        String applyBody = json.writeValueAsString(java.util.Map.of("previewHash",
+                preview.getBody().path("previewHash").asText()));
+        ResponseEntity<JsonNode> queued = http.postForEntity(applyEndpoint,
+                new HttpEntity<>(applyBody, headers), JsonNode.class);
+        assertEquals(HttpStatus.ACCEPTED, queued.getStatusCode());
+        assertEquals("QUEUED", queued.getBody().path("status").asText());
+
+        importJobs.dispatchQueuedJobs();
+        String jobEndpoint = "http://localhost:" + port + "/api/v1/projects/" + projectId
+                + "/imports/" + jobId;
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+        JsonNode completed = null;
+        while (System.nanoTime() < deadline) {
+            ResponseEntity<JsonNode> current = http.exchange(jobEndpoint, HttpMethod.GET,
+                    new HttpEntity<>(headers), JsonNode.class);
+            assertEquals(HttpStatus.OK, current.getStatusCode());
+            String status = current.getBody().path("status").asText();
+            if ("COMPLETED".equals(status)) {
+                completed = current.getBody();
+                break;
+            }
+            if ("FAILED".equals(status)) throw new AssertionError("Import job failed: " + current.getBody());
+            Thread.sleep(25);
+        }
+        assertNotNull(completed, "MySQL import worker should finish before the integration-test deadline");
+
+        try (var connection = dataSource.getConnection();
+             var statement = connection.prepareStatement("""
+                     SELECT entry_key, source_text, source_revision
+                       FROM catalog_entries
+                      WHERE project_id = ? AND namespace_id = ? AND status = 'ACTIVE'
+                      ORDER BY entry_key
+                     """)) {
+            statement.setLong(1, projectId);
+            statement.setLong(2, namespaceId);
+            try (var rows = statement.executeQuery()) {
+                assertTrue(rows.next());
+                assertEquals("home.subtitle", rows.getString("entry_key"));
+                assertEquals("请登录", rows.getString("source_text"));
+                assertEquals(1, rows.getLong("source_revision"));
+                assertTrue(rows.next());
+                assertEquals("home.title", rows.getString("entry_key"));
+                assertEquals("欢迎", rows.getString("source_text"));
+                assertEquals(1, rows.getLong("source_revision"));
+                assertFalse(rows.next(), "idempotent replay must not create duplicate catalog entries");
+            }
+        }
+        assertEquals("COMPLETED", completed.path("status").asText());
     }
 
     @Test
@@ -326,18 +436,8 @@ class MySql8MigrationsTest {
             throws InterruptedException {
         // A single verified test principal exercises the protected HTTP boundary without configuring a real IdP.
         String token = "mysql-release-integration-token";
-        var now = java.time.Instant.now();
-        given(jwtDecoder.decode(token)).willReturn(Jwt.withTokenValue(token)
-                .header("alg", "RS256")
-                .issuer("https://issuer.example.test")
-                .subject("sync-consumer")
-                .audience(java.util.List.of("yandu-api"))
-                .issuedAt(now)
-                .expiresAt(now.plusSeconds(300))
-                .build());
         String endpoint = "http://localhost:" + port + "/api/v1/projects/" + projectId + "/releases";
-        HttpHeaders requestHeaders = new HttpHeaders();
-        requestHeaders.setBearerAuth(token);
+        HttpHeaders requestHeaders = authenticatedHeaders(token, "sync-consumer");
         requestHeaders.set("Idempotency-Key", idempotencyKey);
         requestHeaders.setContentType(MediaType.APPLICATION_JSON);
         var request = new HttpEntity<>("{\"locale\":\"fr-FR\",\"format\":\"json-flat-v1\"}", requestHeaders);
@@ -364,6 +464,21 @@ class MySql8MigrationsTest {
             Thread.sleep(25);
         }
         throw new AssertionError("Release job did not complete before the integration-test deadline");
+    }
+
+    private HttpHeaders authenticatedHeaders(String token, String subject) {
+        var now = java.time.Instant.now();
+        given(jwtDecoder.decode(token)).willReturn(Jwt.withTokenValue(token)
+                .header("alg", "RS256")
+                .issuer("https://issuer.example.test")
+                .subject(subject)
+                .audience(java.util.List.of("yandu-api"))
+                .issuedAt(now)
+                .expiresAt(now.plusSeconds(300))
+                .build());
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        return headers;
     }
 
     private String latestChecksum(long projectId, String locale) {
