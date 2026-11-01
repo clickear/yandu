@@ -647,6 +647,25 @@ h1 > span {
   align-items: center;
   flex-wrap: wrap;
 }
+.namespace-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+}
+.namespace-controls label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #887991;
+  font-size: 11px;
+}
+.namespace-controls .button {
+  min-height: 34px;
+  padding: 0 9px;
+  font-size: 10px;
+}
 .search-box {
   display: flex;
   align-items: center;

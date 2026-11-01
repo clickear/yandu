@@ -152,6 +152,27 @@ export function addRemoteLocale(projectId: string, locale: string) {
   })
 }
 
+export type RemoteNamespace = { id: string; projectId: string; name: string; status: 'ACTIVE' | 'ARCHIVED' }
+export function listRemoteNamespaces(projectId: string, includeArchived = false) {
+  return request<RemoteNamespace[]>(`/projects/${projectId}/namespaces?includeArchived=${includeArchived}`)
+}
+export function createRemoteNamespace(projectId: string, name: string) {
+  return request<RemoteNamespace>(`/projects/${projectId}/namespaces`, {
+    method: 'POST', body: JSON.stringify({ name }),
+  })
+}
+export function renameRemoteNamespace(projectId: string, namespaceId: string, name: string) {
+  return request<RemoteNamespace>(`/projects/${projectId}/namespaces/${namespaceId}`, {
+    method: 'PUT', body: JSON.stringify({ name }),
+  })
+}
+export function archiveRemoteNamespace(projectId: string, namespaceId: string) {
+  return request<void>(`/projects/${projectId}/namespaces/${namespaceId}`, { method: 'DELETE' })
+}
+export function restoreRemoteNamespace(projectId: string, namespaceId: string) {
+  return request<RemoteNamespace>(`/projects/${projectId}/namespaces/${namespaceId}/restore`, { method: 'POST' })
+}
+
 export function archiveRemoteLocale(projectId: string, locale: string) {
   return request<string[]>(`/projects/${projectId}/languages/${encodeURIComponent(locale)}`, {
     method: 'DELETE',
@@ -202,10 +223,10 @@ export function retryMachineTranslationJob(projectId: string, jobId: string) {
   )
 }
 
-export function addRemoteEntry(project: Project, key: string, sourceText: string) {
+export function addRemoteEntry(project: Project, key: string, sourceText: string, namespaceId = project.defaultNamespaceId) {
   return request(`/projects/${project.id}/catalog/entries`, {
     method: 'POST',
-    body: JSON.stringify({ namespaceId: project.defaultNamespaceId, key, sourceText }),
+    body: JSON.stringify({ namespaceId, key, sourceText }),
   })
 }
 
@@ -238,9 +259,9 @@ type ApiEntry = {
 }
 
 export async function loadTranslationPage(project: Project, locale: string, keyword: string,
-                                         status: string, page: number) {
+                                         status: string, page: number, namespaceId = project.defaultNamespaceId) {
   const params = new URLSearchParams({
-    namespaceId: project.defaultNamespaceId ?? project.id,
+    namespaceId: namespaceId ?? project.defaultNamespaceId ?? project.id,
     locale,
     page: String(page),
     pageSize: '50',
@@ -285,14 +306,15 @@ export function approveRemoteTranslation(projectId: string, entryId: string, loc
   })
 }
 
-export function previewRemoteImport(projectId: string, project: Project, locale: string, json: string) {
+export function previewRemoteImport(projectId: string, project: Project, locale: string, json: string,
+                                    namespaceId = project.defaultNamespaceId) {
   return request<{ id: string; previewHash: string;
     preview: { conflicts: number; added: number; updated: number; unchanged: number;
       items: { key: string; action: string; currentValue: string | null; incomingValue: string; message: string | null }[] } }>(
     `/projects/${projectId}/imports/previews`, {
       method: 'POST',
       headers: { 'Idempotency-Key': crypto.randomUUID() },
-      body: JSON.stringify({ namespaceId: project.defaultNamespaceId, locale, json }),
+      body: JSON.stringify({ namespaceId, locale, json }),
     },
   )
 }

@@ -3,6 +3,7 @@ package com.yandu.workspace;
 import com.yandu.audit.AuditLog;
 import com.yandu.workspace.application.WorkspaceRepository;
 import com.yandu.workspace.domain.Project;
+import com.yandu.workspace.domain.Namespace;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
@@ -93,6 +94,75 @@ public class WorkspaceApplicationService {
         audit.record(project.id(), command.actorId(), restoring ? "TARGET_LOCALE_RESTORED" : "TARGET_LOCALE_ADDED",
                 "PROJECT_LANGUAGE", null, java.util.Map.of("locale", locale, "projectVersion", project.version()));
         return view(updated);
+    }
+
+    @Transactional(readOnly = true)
+    public List<NamespaceView> namespaces(long actorId, long projectId, boolean includeArchived) {
+        access.requireCanReadProject(actorId, projectId);
+        projects.findAny(projectId).orElseThrow(() -> new ProjectNotFoundException(projectId));
+        return projects.namespaces(projectId, includeArchived).stream().map(NamespaceView::from).toList();
+    }
+
+    /** Holds the namespace row lock until the caller's transaction inserts its resource. */
+    @Transactional
+    public void requireActiveNamespace(long projectId, long namespaceId) {
+        if (!projects.lockActiveNamespace(projectId, namespaceId)) {
+            throw new IllegalArgumentException("Namespace is not active in this project");
+        }
+    }
+
+    @Transactional
+    public NamespaceView createNamespace(CreateNamespace command) {
+        access.requireCanManageProject(command.actorId(), command.projectId());
+        projects.find(command.projectId()).orElseThrow(() -> new ProjectNotFoundException(command.projectId()));
+        var namespace = new Namespace(ids.getAsLong(), command.projectId(), command.name(), Namespace.Status.ACTIVE);
+        projects.insertNamespace(namespace, command.actorId(), clock.instant());
+        audit.record(command.projectId(), command.actorId(), "NAMESPACE_CREATED", "NAMESPACE",
+                namespace.id(), java.util.Map.of("name", namespace.name()));
+        return NamespaceView.from(namespace);
+    }
+
+    @Transactional
+    public NamespaceView renameNamespace(RenameNamespace command) {
+        access.requireCanManageProject(command.actorId(), command.projectId());
+        var namespace = findNamespace(command.projectId(), command.namespaceId(), false)
+                .rename(command.name());
+        if (!projects.renameNamespace(command.projectId(), namespace.id(), namespace.name())) {
+            throw new IllegalStateException("Namespace changed concurrently; reload and retry");
+        }
+        audit.record(command.projectId(), command.actorId(), "NAMESPACE_RENAMED", "NAMESPACE",
+                namespace.id(), java.util.Map.of("name", namespace.name()));
+        return NamespaceView.from(namespace);
+    }
+
+    @Transactional
+    public void archiveNamespace(NamespaceCommand command) {
+        access.requireCanManageProject(command.actorId(), command.projectId());
+        var namespace = findNamespace(command.projectId(), command.namespaceId(), false)
+                .archive(projects.namespaceHasEntries(command.projectId(), command.namespaceId()));
+        if (!projects.archiveNamespace(command.projectId(), namespace.id())) {
+            throw new IllegalStateException("Namespace is not empty or changed concurrently; reload and retry");
+        }
+        audit.record(command.projectId(), command.actorId(), "NAMESPACE_ARCHIVED", "NAMESPACE",
+                namespace.id(), java.util.Map.of());
+    }
+
+    @Transactional
+    public NamespaceView restoreNamespace(NamespaceCommand command) {
+        access.requireCanManageProject(command.actorId(), command.projectId());
+        var namespace = findNamespace(command.projectId(), command.namespaceId(), true).restore();
+        if (!projects.restoreNamespace(command.projectId(), namespace.id())) {
+            throw new IllegalStateException("Namespace could not be restored; reload and retry");
+        }
+        audit.record(command.projectId(), command.actorId(), "NAMESPACE_RESTORED", "NAMESPACE",
+                namespace.id(), java.util.Map.of());
+        return NamespaceView.from(namespace);
+    }
+
+    private Namespace findNamespace(long projectId, long namespaceId, boolean includeArchived) {
+        return projects.namespaces(projectId, includeArchived).stream()
+                .filter(namespace -> namespace.id() == namespaceId).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Namespace not found in project"));
     }
 
     @Transactional(readOnly = true)
@@ -301,6 +371,16 @@ public class WorkspaceApplicationService {
             if (actorId <= 0 || projectId <= 0) {
                 throw new IllegalArgumentException("actorId and projectId must be positive");
             }
+        }
+    }
+
+    public record CreateNamespace(long actorId, long projectId, String name) { }
+    public record RenameNamespace(long actorId, long projectId, long namespaceId, String name) { }
+    public record NamespaceCommand(long actorId, long projectId, long namespaceId) { }
+    public record NamespaceView(String id, String projectId, String name, String status) {
+        private static NamespaceView from(Namespace namespace) {
+            return new NamespaceView(Long.toString(namespace.id()), Long.toString(namespace.projectId()),
+                    namespace.name(), namespace.status().name());
         }
     }
 

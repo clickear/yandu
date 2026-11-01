@@ -65,6 +65,7 @@ public class CatalogEntryApplicationService {
 
     private EntryView createEntry(long actorId, long projectId, long namespaceId,
                                   String sourceLocale, String key, String sourceText) {
+        workspace.requireActiveNamespace(projectId, namespaceId);
         var now = clock.instant();
         var entryId = ids.getAsLong();
         var entry = new CatalogEntry(

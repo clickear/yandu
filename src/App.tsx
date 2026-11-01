@@ -79,12 +79,17 @@ import {
   removeRemoteMember,
   leaveRemoteProject,
   archiveRemoteLocale,
+  archiveRemoteNamespace,
+  createRemoteNamespace,
+  listRemoteNamespaces,
+  restoreRemoteNamespace,
+  renameRemoteNamespace,
   createMachineTranslationJob,
   listMachineTranslationJobs,
   getMachineTranslationJobItems,
   retryMachineTranslationJob,
 } from './backend'
-import type { MachineTranslationJob, MachineTranslationJobItems, ProjectMigration } from './backend'
+import type { MachineTranslationJob, MachineTranslationJobItems, ProjectMigration, RemoteNamespace } from './backend'
 
 function readInitial() {
   try {
@@ -328,6 +333,8 @@ export default function App() {
   const [storageBlocked, setStorageBlocked] = useState(Boolean(initial.warning))
   const [projectId, setProjectId] = useState(workspace.projects[0]?.id ?? '')
   const [locale, setLocale] = useState(workspace.projects[0]?.targetLanguages[0] ?? 'en-US')
+  const [namespaceId, setNamespaceId] = useState(workspace.projects[0]?.defaultNamespaceId ?? '')
+  const [namespaces, setNamespaces] = useState<RemoteNamespace[]>([])
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('all')
   const [modal, setModal] = useState<'project' | 'entry' | 'language' | 'import' | 'members' | 'glossary' | 'migration' | 'machine-translation' | null>(null)
@@ -372,6 +379,7 @@ export default function App() {
   const [migrationPreview, setMigrationPreview] = useState<ProjectMigration | null>(null)
   const [migrationBusy, setMigrationBusy] = useState(false)
   const project = workspace.projects.find((p) => p.id === projectId)
+  const activeNamespaceId = namespaceId || project?.defaultNamespaceId || ''
   const editing = project?.entries.find((e) => e.id === editingId)
   const sourceEditing = project?.entries.find((e) => e.id === sourceEditingId)
   const localStats = project
@@ -415,6 +423,18 @@ export default function App() {
     }).catch(() => { if (active) setProjectRole(null) })
     return () => { active = false }
   }, [authStatus, projectId, actorId])
+
+  useEffect(() => {
+    if (!backendEnabled || authStatus !== 'ready' || !projectId) return
+    let active = true
+    void listRemoteNamespaces(projectId, true).then((items) => {
+      if (!active) return
+      setNamespaces(items)
+      setNamespaceId((current) => items.some((item) => item.id === current && item.status === 'ACTIVE')
+        ? current : items.find((item) => item.status === 'ACTIVE')?.id ?? '')
+    }).catch((error: unknown) => { if (active) notify(error instanceof Error ? error.message : '无法读取命名空间。', true) })
+    return () => { active = false }
+  }, [authStatus, projectId, remoteRefresh])
 
   useEffect(() => {
     if (!backendEnabled || authStatus !== 'ready' || modal !== 'members' || !projectId) return
@@ -463,7 +483,7 @@ export default function App() {
     }
     let active = true
     setRemoteLoading(true)
-    void loadTranslationPage(project, locale, query.trim(), filter, remotePage).then((result) => {
+    void loadTranslationPage(project, locale, query.trim(), filter, remotePage, activeNamespaceId).then((result) => {
       if (!active) return
       setWorkspace((current) => ({
         ...current,
@@ -479,7 +499,7 @@ export default function App() {
       if (active) notify(error instanceof Error ? error.message : '无法加载文案。', true)
     }).finally(() => { if (active) setRemoteLoading(false) })
     return () => { active = false }
-  }, [authStatus, projectId, project?.status, locale, query, filter, remotePage, remoteRefresh])
+  }, [authStatus, projectId, project?.status, locale, activeNamespaceId, query, filter, remotePage, remoteRefresh])
 
   useEffect(() => {
     if (!backendEnabled || authStatus !== 'ready' || !projectId || !sourceEditingId) {
@@ -531,6 +551,7 @@ export default function App() {
   const localMigrationProject = localProjects.find((item) => item.id === localProjectId)
   const chooseProject = (p: Project) => {
     setProjectId(p.id)
+    setNamespaceId(p.defaultNamespaceId ?? '')
     setLocale(p.targetLanguages[0])
     setQuery('')
     setFilter('all')
@@ -982,6 +1003,61 @@ export default function App() {
                   </button>
                 </div>
                 <div className="table-toolbar">
+                  {backendEnabled && (
+                    <div className="namespace-controls">
+                      <label>命名空间
+                        <select aria-label="选择命名空间" value={namespaceId}
+                          onChange={(event) => { setNamespaceId(event.target.value); setRemotePage(1) }}>
+                          {namespaces.filter((item) => item.status === 'ACTIVE').map((item) => (
+                            <option key={item.id} value={item.id}>{item.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                      {canManageProject && projectActive && <>
+                        <button className="button plain" disabled={!namespaceId} onClick={async () => {
+                          const current = namespaces.find((item) => item.id === namespaceId)
+                          const name = window.prompt('重命名命名空间', current?.name)?.trim()
+                          if (!name || !current) return
+                          try {
+                            const updated = await renameRemoteNamespace(project.id, namespaceId, name)
+                            setNamespaces((items) => items.map((item) => item.id === updated.id ? updated : item))
+                            notify('命名空间已重命名。')
+                          } catch (error) { notify(error instanceof Error ? error.message : '重命名失败。', true) }
+                        }}>重命名</button>
+                        <button className="button plain" onClick={async () => {
+                          const name = window.prompt('新命名空间名称')?.trim()
+                          if (!name) return
+                          try {
+                            const created = await createRemoteNamespace(project.id, name)
+                            setNamespaces((current) => [...current.filter((item) => item.id !== created.id), created])
+                            setNamespaceId(created.id); setRemotePage(1); setRemoteRefresh((value) => value + 1)
+                            notify(`已创建命名空间「${created.name}」。`)
+                          } catch (error) { notify(error instanceof Error ? error.message : '创建命名空间失败。', true) }
+                        }}><Plus size={14} />新建命名空间</button>
+                        <button className="button plain" disabled={!namespaceId}
+                          onClick={async () => {
+                            if (!window.confirm('只能归档空命名空间。确认归档当前命名空间？')) return
+                            try {
+                              await archiveRemoteNamespace(project.id, namespaceId)
+                              const items = await listRemoteNamespaces(project.id, true)
+                              setNamespaces(items)
+                              setNamespaceId(items.find((item) => item.status === 'ACTIVE')?.id ?? '')
+                              notify('命名空间已归档。')
+                            } catch (error) { notify(error instanceof Error ? error.message : '归档失败；请确认命名空间为空。', true) }
+                          }}><Archive size={14} />归档</button>
+                        {namespaces.filter((item) => item.status === 'ARCHIVED').map((item) => (
+                          <button className="button plain" key={`restore-${item.id}`} onClick={async () => {
+                            try {
+                              await restoreRemoteNamespace(project.id, item.id)
+                              const items = await listRemoteNamespaces(project.id, true)
+                              setNamespaces(items); setNamespaceId(item.id); setRemotePage(1)
+                              notify(`已恢复命名空间「${item.name}」。`)
+                            } catch (error) { notify(error instanceof Error ? error.message : '恢复命名空间失败。', true) }
+                          }}>恢复「{item.name}」</button>
+                        ))}
+                      </>}
+                    </div>
+                  )}
                   <label className="search-box">
                     <Search size={17} />
                     <input
@@ -1202,7 +1278,7 @@ export default function App() {
                   const key = String(data.get('key')).trim()
                   const source = String(data.get('source'))
                   if (!key || !source.trim()) throw new Error('请填写键名和源文案。')
-                  await addRemoteEntry(project, key, source)
+                  await addRemoteEntry(project, key, source, activeNamespaceId)
                   setRemoteRefresh((value) => value + 1)
                 } else {
                   updateProject(addEntry(project, String(data.get('key')), String(data.get('source'))))
@@ -1603,7 +1679,7 @@ export default function App() {
                 try {
                   if (backendEnabled) {
                     if (!importPreview) {
-                      const preview = await previewRemoteImport(project.id, project, importLocale, importText)
+                      const preview = await previewRemoteImport(project.id, project, importLocale, importText, activeNamespaceId)
                       setImportPreview(preview)
                       setFormError('')
                       notify('差异预览已生成，请检查后确认导入。')

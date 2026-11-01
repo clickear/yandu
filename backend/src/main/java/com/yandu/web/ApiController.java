@@ -98,6 +98,45 @@ public class ApiController {
                 actors.resolve(principal), projectId, body.locale()));
     }
 
+    @GetMapping("/projects/{projectId}/namespaces")
+    public java.util.List<WorkspaceApplicationService.NamespaceView> namespaces(
+            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+            @RequestParam(defaultValue = "false") boolean includeArchived) {
+        return workspace.namespaces(actors.resolve(principal), projectId, includeArchived);
+    }
+
+    @PostMapping("/projects/{projectId}/namespaces")
+    @ResponseStatus(HttpStatus.CREATED)
+    public WorkspaceApplicationService.NamespaceView createNamespace(
+            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+            @Valid @RequestBody CreateNamespaceBody body) {
+        return workspace.createNamespace(new WorkspaceApplicationService.CreateNamespace(
+                actors.resolve(principal), projectId, body.name()));
+    }
+
+    @PutMapping("/projects/{projectId}/namespaces/{namespaceId}")
+    public WorkspaceApplicationService.NamespaceView renameNamespace(
+            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+            @PathVariable long namespaceId, @Valid @RequestBody CreateNamespaceBody body) {
+        return workspace.renameNamespace(new WorkspaceApplicationService.RenameNamespace(
+                actors.resolve(principal), projectId, namespaceId, body.name()));
+    }
+
+    @DeleteMapping("/projects/{projectId}/namespaces/{namespaceId}")
+    public void archiveNamespace(@AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+                                 @PathVariable long namespaceId) {
+        workspace.archiveNamespace(new WorkspaceApplicationService.NamespaceCommand(
+                actors.resolve(principal), projectId, namespaceId));
+    }
+
+    @PostMapping("/projects/{projectId}/namespaces/{namespaceId}/restore")
+    public WorkspaceApplicationService.NamespaceView restoreNamespace(
+            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+            @PathVariable long namespaceId) {
+        return workspace.restoreNamespace(new WorkspaceApplicationService.NamespaceCommand(
+                actors.resolve(principal), projectId, namespaceId));
+    }
+
     @GetMapping("/projects/{projectId}/members")
     public java.util.List<ProjectMemberView> members(@AuthenticationPrincipal Jwt principal,
                                                      @PathVariable long projectId) {
@@ -525,6 +564,8 @@ public class ApiController {
                                     java.util.List<@NotBlank @Size(max = 35) String> targetLocales) { }
 
     public record TargetLocaleBody(@NotBlank @Size(max = 35) String locale) { }
+
+    public record CreateNamespaceBody(@NotBlank @Size(max = 120) String name) { }
 
     public record CreateEntryBody(@NotBlank String namespaceId,
                                   @NotBlank @Size(max = 200) String key,

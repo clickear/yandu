@@ -140,6 +140,32 @@ public interface WorkspaceMapper extends BaseMapper<WorkspaceMapper.ProjectRow> 
                                @Param("actorId") long actorId,
                                @Param("createdAt") Instant createdAt);
 
+    @Select("SELECT id, project_id AS projectId, name, status FROM namespaces WHERE project_id = #{projectId} AND (#{includeArchived} = TRUE OR status = 'ACTIVE') ORDER BY name, id")
+    List<NamespaceRow> findNamespaces(@Param("projectId") long projectId,
+                                      @Param("includeArchived") boolean includeArchived);
+
+    @Select("SELECT id, project_id AS projectId, name, status FROM namespaces WHERE project_id = #{projectId} AND id = #{namespaceId} AND status = 'ACTIVE' FOR UPDATE")
+    NamespaceRow lockActiveNamespace(@Param("projectId") long projectId,
+                                      @Param("namespaceId") long namespaceId);
+
+    @Insert("INSERT INTO namespaces (id, project_id, name, status, created_by, created_at) VALUES (#{id}, #{projectId}, #{name}, #{status}, #{actorId}, #{createdAt})")
+    int insertNamespace(@Param("id") long id, @Param("projectId") long projectId,
+                        @Param("name") String name, @Param("status") String status,
+                        @Param("actorId") long actorId, @Param("createdAt") Instant createdAt);
+
+    @Update("UPDATE namespaces SET name = #{name} WHERE project_id = #{projectId} AND id = #{namespaceId} AND status = 'ACTIVE'")
+    int renameNamespace(@Param("projectId") long projectId, @Param("namespaceId") long namespaceId,
+                        @Param("name") String name);
+
+    @Update("UPDATE namespaces SET status = 'ARCHIVED' WHERE project_id = #{projectId} AND id = #{namespaceId} AND status = 'ACTIVE' AND NOT EXISTS (SELECT 1 FROM catalog_entries WHERE project_id = #{projectId} AND namespace_id = #{namespaceId} AND status = 'ACTIVE')")
+    int archiveNamespace(@Param("projectId") long projectId, @Param("namespaceId") long namespaceId);
+
+    @Update("UPDATE namespaces SET status = 'ACTIVE' WHERE project_id = #{projectId} AND id = #{namespaceId} AND status = 'ARCHIVED'")
+    int restoreNamespace(@Param("projectId") long projectId, @Param("namespaceId") long namespaceId);
+
+    @Select("SELECT COUNT(*) > 0 FROM catalog_entries WHERE project_id = #{projectId} AND namespace_id = #{namespaceId}")
+    boolean namespaceHasEntries(@Param("projectId") long projectId, @Param("namespaceId") long namespaceId);
+
     @Insert("""
             INSERT INTO project_members (project_id, user_id, role, created_at)
             VALUES (#{projectId}, #{userId}, 'OWNER', #{createdAt})
@@ -165,6 +191,16 @@ public interface WorkspaceMapper extends BaseMapper<WorkspaceMapper.ProjectRow> 
         private Long userId;
         private String role;
         private Instant createdAt;
+    }
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    class NamespaceRow {
+        private Long id;
+        private Long projectId;
+        private String name;
+        private String status;
     }
 
     @TableName("projects")

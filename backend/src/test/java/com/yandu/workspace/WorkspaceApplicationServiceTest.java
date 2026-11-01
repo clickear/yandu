@@ -7,6 +7,7 @@ import static org.mockito.Mockito.mock;
 import com.yandu.audit.AuditLog;
 import com.yandu.workspace.application.WorkspaceRepository;
 import com.yandu.workspace.domain.Project;
+import com.yandu.workspace.domain.Namespace;
 import com.yandu.workspace.ProjectAccessPolicy;
 import java.time.Clock;
 import java.time.Instant;
@@ -75,6 +76,22 @@ class WorkspaceApplicationServiceTest {
     }
 
     @Test
+    void namespaceLifecycleValidatesNamesAndOnlyArchivesEmptyNamespaces() {
+        var repository = new InMemoryWorkspaceRepository();
+        repository.projects.put(101L, new WorkspaceApplicationService.ProjectSnapshot(
+                101L, 11L, "Storefront", "zh-CN", Set.of("en-US"), 1));
+        repository.namespaces.add(new Namespace(102L, 101L, "checkout", Namespace.Status.ACTIVE));
+        var service = service(repository, new AllowAllPolicy());
+
+        assertEquals("checkout-v2", service.renameNamespace(
+                new WorkspaceApplicationService.RenameNamespace(11L, 101L, 102L, " checkout-v2 ")).name());
+        assertThrows(IllegalStateException.class, () -> service.archiveNamespace(
+                new WorkspaceApplicationService.NamespaceCommand(11L, 101L, 102L)));
+        assertThrows(IllegalArgumentException.class, () -> service.createNamespace(
+                new WorkspaceApplicationService.CreateNamespace(11L, 101L, "  ")));
+    }
+
+    @Test
     void ownerCanAddAnExistingUserWithAProjectRole() {
         var repository = new InMemoryWorkspaceRepository();
         repository.projects.put(101L, new WorkspaceApplicationService.ProjectSnapshot(
@@ -125,12 +142,14 @@ class WorkspaceApplicationServiceTest {
         private final Map<Long, String> defaultNamespaces = new HashMap<>();
         private final java.util.Set<Long> users = new java.util.HashSet<>();
         private final ArrayList<WorkspaceApplicationService.ProjectMember> members = new ArrayList<>();
+        private final ArrayList<Namespace> namespaces = new ArrayList<>();
 
         @Override
         public void insert(WorkspaceApplicationService.ProjectSnapshot project,
                            long namespaceId, String namespaceName, Instant createdAt) {
             projects.put(project.id(), project);
             defaultNamespaces.put(project.id(), namespaceName);
+            namespaces.add(new Namespace(namespaceId, project.id(), namespaceName, Namespace.Status.ACTIVE));
             members.add(new WorkspaceApplicationService.ProjectMember(
                     project.ownerId(), WorkspaceApplicationService.MemberRole.OWNER, createdAt));
         }
@@ -177,6 +196,36 @@ class WorkspaceApplicationServiceTest {
         @Override
         public void update(WorkspaceApplicationService.ProjectSnapshot project, Instant updatedAt) {
             projects.put(project.id(), project);
+        }
+
+        @Override public List<Namespace> namespaces(long projectId, boolean includeArchived) {
+            return namespaces.stream().filter(n -> n.projectId() == projectId)
+                    .filter(n -> includeArchived || n.status() == Namespace.Status.ACTIVE).toList();
+        }
+        @Override public void insertNamespace(Namespace namespace, long actorId, Instant createdAt) { namespaces.add(namespace); }
+        @Override public boolean renameNamespace(long projectId, long namespaceId, String name) {
+            var index = indexOf(namespaceId);
+            if (index < 0) return false;
+            namespaces.set(index, namespaces.get(index).rename(name)); return true;
+        }
+        @Override public boolean archiveNamespace(long projectId, long namespaceId) {
+            var index = indexOf(namespaceId);
+            if (index < 0) return false;
+            namespaces.set(index, namespaces.get(index).archive(false)); return true;
+        }
+        @Override public boolean restoreNamespace(long projectId, long namespaceId) {
+            var index = indexOf(namespaceId);
+            if (index < 0) return false;
+            namespaces.set(index, namespaces.get(index).restore()); return true;
+        }
+        @Override public boolean namespaceHasEntries(long projectId, long namespaceId) { return namespaceId == 102L; }
+        @Override public boolean lockActiveNamespace(long projectId, long namespaceId) {
+            return namespaces.stream().anyMatch(n -> n.projectId() == projectId && n.id() == namespaceId
+                    && n.status() == Namespace.Status.ACTIVE);
+        }
+        private int indexOf(long namespaceId) {
+            for (int i = 0; i < namespaces.size(); i++) if (namespaces.get(i).id() == namespaceId) return i;
+            return -1;
         }
     }
 }

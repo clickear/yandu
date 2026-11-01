@@ -6,6 +6,7 @@ import java.util.List;
 import com.yandu.workspace.WorkspaceApplicationService.MemberRole;
 import com.yandu.workspace.WorkspaceApplicationService.ProjectMember;
 import com.yandu.workspace.WorkspaceApplicationService.ProjectSnapshot;
+import com.yandu.workspace.domain.Namespace;
 
 /** Persistence port for projects and their target locales. */
 public interface WorkspaceRepository {
@@ -58,4 +59,18 @@ public interface WorkspaceRepository {
     }
 
     void update(ProjectSnapshot project, Instant updatedAt);
+
+    List<Namespace> namespaces(long projectId, boolean includeArchived);
+
+    void insertNamespace(Namespace namespace, long actorId, Instant createdAt);
+
+    boolean renameNamespace(long projectId, long namespaceId, String name);
+
+    boolean archiveNamespace(long projectId, long namespaceId);
+
+    boolean restoreNamespace(long projectId, long namespaceId);
+
+    boolean namespaceHasEntries(long projectId, long namespaceId);
+
+    boolean lockActiveNamespace(long projectId, long namespaceId);
 }

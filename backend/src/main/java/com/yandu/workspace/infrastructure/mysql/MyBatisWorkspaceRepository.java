@@ -4,6 +4,7 @@ import com.yandu.workspace.WorkspaceApplicationService.ProjectSnapshot;
 import com.yandu.workspace.WorkspaceApplicationService.MemberRole;
 import com.yandu.workspace.WorkspaceApplicationService.ProjectMember;
 import com.yandu.workspace.application.WorkspaceRepository;
+import com.yandu.workspace.domain.Namespace;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.List;
@@ -162,5 +163,37 @@ public class MyBatisWorkspaceRepository implements WorkspaceRepository {
                 mapper.insertTargetLocale(project.id(), locale, updatedAt);
             }
         }
+    }
+
+    @Override public List<Namespace> namespaces(long projectId, boolean includeArchived) {
+        return mapper.findNamespaces(projectId, includeArchived).stream()
+                .map(row -> new Namespace(row.getId(), row.getProjectId(), row.getName(),
+                        Namespace.Status.valueOf(row.getStatus())))
+                .toList();
+    }
+
+    @Override public void insertNamespace(Namespace namespace, long actorId, Instant createdAt) {
+        mapper.insertNamespace(namespace.id(), namespace.projectId(), namespace.name(),
+                namespace.status().name(), actorId, createdAt);
+    }
+
+    @Override public boolean renameNamespace(long projectId, long namespaceId, String name) {
+        return mapper.renameNamespace(projectId, namespaceId, name) == 1;
+    }
+
+    @Override public boolean archiveNamespace(long projectId, long namespaceId) {
+        return mapper.archiveNamespace(projectId, namespaceId) == 1;
+    }
+
+    @Override public boolean restoreNamespace(long projectId, long namespaceId) {
+        return mapper.restoreNamespace(projectId, namespaceId) == 1;
+    }
+
+    @Override public boolean namespaceHasEntries(long projectId, long namespaceId) {
+        return mapper.namespaceHasEntries(projectId, namespaceId);
+    }
+
+    @Override public boolean lockActiveNamespace(long projectId, long namespaceId) {
+        return mapper.lockActiveNamespace(projectId, namespaceId) != null;
     }
 }
