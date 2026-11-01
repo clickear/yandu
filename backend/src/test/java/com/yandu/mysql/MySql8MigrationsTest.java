@@ -37,6 +37,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -421,6 +422,18 @@ class MySql8MigrationsTest {
                 new HttpEntity<>(corrected, headers), JsonNode.class);
         assertEquals(HttpStatus.OK, saved.getStatusCode());
         assertEquals(2, saved.getBody().path("version").asInt());
+        String staleEdit = json.writeValueAsString(java.util.Map.of(
+                "expectedVersion", 1, "basedOnSourceRevision", 1, "value", "stale overwrite"));
+        HttpClientErrorException staleConflict = assertThrows(HttpClientErrorException.class,
+                () -> http.exchange(translationEndpoint, HttpMethod.PUT,
+                        new HttpEntity<>(staleEdit, headers), JsonNode.class));
+        assertEquals(HttpStatus.CONFLICT, staleConflict.getStatusCode());
+        JsonNode conflictDetails = json.readTree(staleConflict.getResponseBodyAsString());
+        assertEquals(1, conflictDetails.path("expectedVersion").asInt());
+        assertEquals(2, conflictDetails.path("actualVersion").asInt());
+        ResponseEntity<JsonNode> unchangedAfterConflict = http.exchange(translationEndpoint,
+                HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+        assertEquals("Hello {name}", unchangedAfterConflict.getBody().path("value").asText());
         ResponseEntity<JsonNode> submitted = http.postForEntity(translationEndpoint + "/submit",
                 new HttpEntity<>("{\"expectedVersion\":2}", headers), JsonNode.class);
         assertEquals(HttpStatus.OK, submitted.getStatusCode());
