@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test'
 test('API workspace tracks a machine translation result and opens its entry', async ({ page }) => {
   let jobCreated = false
   let retryRequested = false
+  let failNextJobsPoll = false
   const projectId = '42'
   const jobId = '900'
   const now = new Date().toISOString()
@@ -44,6 +45,12 @@ test('API workspace tracks a machine translation result and opens its entry', as
           status: retryRequested ? 'DRAFT' : null }],
       }
     } else if (request.method() === 'GET' && path === `/projects/${projectId}/machine-translation-jobs`) {
+      if (failNextJobsPoll) {
+        failNextJobsPoll = false
+        await route.fulfill({ status: 503, contentType: 'application/problem+json',
+          body: JSON.stringify({ title: '任务状态暂时无法读取。' }) })
+        return
+      }
       body = jobCreated ? [{ id: jobId, projectId, locale: 'en-US',
         status: retryRequested ? 'COMPLETED' : 'PARTIAL', totalCount: 1,
         completedCount: retryRequested ? 1 : 0, skippedCount: 0, failedCount: retryRequested ? 0 : 1,
@@ -60,6 +67,7 @@ test('API workspace tracks a machine translation result and opens its entry', as
       return
     } else if (request.method() === 'POST' && path === `/projects/${projectId}/machine-translation-jobs/${jobId}/retry`) {
       retryRequested = true
+      failNextJobsPoll = true
       body = { id: jobId, projectId, locale: 'en-US', status: 'QUEUED', totalCount: 1,
         completedCount: 0, skippedCount: 0, failedCount: 0, createdAt: now, updatedAt: now }
     } else {
@@ -81,7 +89,9 @@ test('API workspace tracks a machine translation result and opens its entry', as
   await expect(machineDialog).toContainText('部分失败')
   await expect(machineDialog).toContainText('临时 provider 故障')
   await machineDialog.getByRole('button', { name: '重试失败项' }).click()
+  await expect(machineDialog.getByRole('alert')).toContainText('任务状态暂时无法读取。', { timeout: 5_000 })
   await expect(machineDialog.getByText('已回填草稿')).toBeVisible({ timeout: 10_000 })
+  await expect(machineDialog.getByRole('alert')).toHaveCount(0)
   await page.getByRole('button', { name: '定位词条' }).click()
   await expect(page.locator('tbody tr').first()).toContainText('Welcome to YANDU')
 })

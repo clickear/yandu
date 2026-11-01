@@ -489,6 +489,7 @@ export default function App() {
   const [machineTranslationItemsPage, setMachineTranslationItemsPage] = useState(1)
   const [machineTranslationRequestKey, setMachineTranslationRequestKey] = useState('')
   const [machineTranslationCreating, setMachineTranslationCreating] = useState(false)
+  const [machineTranslationError, setMachineTranslationError] = useState('')
   const [releaseHistory, setReleaseHistory] = useState<RemoteRelease[]>([])
   const [releaseHistoryLoading, setReleaseHistoryLoading] = useState(false)
   const [releaseJobs, setReleaseJobs] = useState<RemoteReleaseJob[]>([])
@@ -714,8 +715,17 @@ export default function App() {
         setMachineTranslationItems(null)
       }
     }
-    void refresh().catch((error: unknown) => notify(error instanceof Error ? error.message : '机器翻译任务读取失败。', true))
-    const timer = window.setInterval(() => { void refresh().catch(() => {}) }, 3000)
+    const reportRefreshError = (error: unknown) => {
+      if (active) setMachineTranslationError(error instanceof Error ? error.message : '机器翻译任务读取失败。')
+    }
+    void refresh().then(() => {
+      if (active) setMachineTranslationError('')
+    }).catch(reportRefreshError)
+    const timer = window.setInterval(() => {
+      void refresh().then(() => {
+        if (active) setMachineTranslationError('')
+      }).catch(reportRefreshError)
+    }, 3000)
     return () => { active = false; window.clearInterval(timer) }
   }, [authStatus, modal, projectId, machineTranslationJobId, machineTranslationItemsPage])
 
@@ -783,6 +793,7 @@ export default function App() {
       setMachineTranslationJobId('')
       setMachineTranslationItemsPage(1)
       setMachineTranslationRequestKey('')
+      setMachineTranslationError('')
     }
     if (next === 'migration') {
       const first = localProjects[0]
@@ -1883,6 +1894,7 @@ export default function App() {
           <p className="modal-copy">
             对当前目标语言的未译文案生成机器翻译草稿。任务结果会重新检查源文和译文版本；人工已填写的内容不会被覆盖。
           </p>
+          {machineTranslationError && <p className="form-error" role="alert">{machineTranslationError}</p>}
           <div className="inline-actions">
             <span>目标语言：{languageName(locale)}（{locale}）</span>
             <button className="button primary" type="button" disabled={machineTranslationCreating}
