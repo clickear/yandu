@@ -135,6 +135,7 @@ public class MachineTranslationApplicationService {
     @Transactional
     public JobView retry(RetryJob command) {
         access.requireCanManageTranslation(command.actorId(), command.projectId());
+        if (!provider.isConfigured()) throw new ProviderNotConfiguredException();
         var job = find(command.projectId(), command.jobId());
         if (job.failedCount() == 0
                 || jobs.retryFailed(command.projectId(), command.jobId(), clock.instant()) == 0) {

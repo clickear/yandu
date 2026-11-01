@@ -63,6 +63,16 @@ class MachineTranslationApplicationServiceTest {
     }
 
     @Test
+    void refusesToRequeueFailedItemsWhenNoProviderIsConfigured() {
+        when(provider.isConfigured()).thenReturn(false);
+
+        assertThrows(MachineTranslationApplicationService.ProviderNotConfiguredException.class,
+                () -> service.retry(new MachineTranslationApplicationService.RetryJob(11L, 101L, 900L)));
+
+        verify(jobs, never()).retryFailed(anyLong(), anyLong(), any());
+    }
+
+    @Test
     void returnsTheExistingJobForAnIdenticalIdempotentRequest() {
         project();
         var hash = requestHash("en-US");

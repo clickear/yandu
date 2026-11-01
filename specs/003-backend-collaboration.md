@@ -28,7 +28,7 @@ Spring Boot、Spring Modulith 与 Spring Security 的选择依据及其职责边
 
 消费端同步方式需要通过配置切换：普通 HTTP 轮询作为默认/兜底，并同时支持 Netty TCP 长连接实时通知和 WebSocket 实时通知。两种长连接只推送发布版本元数据变化，消费端收到通知后仍通过 HTTP 拉取完整不可变快照并校验 SHA-256。消费流量是单向通知，因此 WebSocket 不承载任意业务命令；Netty 模式使用独立 TCP 监听端口和 newline-delimited JSON 订阅协议。
 
-机器翻译纳入首期主流程，但不默认启用外部服务：通过配置 LibreTranslate-compatible 或 OpenAI-compatible Chat Completions HTTP provider 接入自托管/托管翻译服务、大模型 API 或兼容第三方网关。任务异步持久化、可查询/重试；结果只以草稿回填，且必须匹配创建时源版本和译文版本、当前译文仍为空，避免旧任务覆盖人工编辑。未配置 provider 时不创建假成功状态。Git 集成、截图/OCR、计费商城、微服务拆分和跨区域主动-主动部署不纳入首期。
+机器翻译纳入首期主流程，但不默认启用外部服务：通过配置 LibreTranslate-compatible 或 OpenAI-compatible Chat Completions HTTP provider 接入自托管/托管翻译服务、大模型 API 或兼容第三方网关。任务异步持久化、可查询/重试；结果只以草稿回填，且必须匹配创建时源版本和译文版本、当前译文仍为空，避免旧任务覆盖人工编辑。未配置 provider 时，新建任务和重排失败项均返回服务不可用，不把无人处理的项目重新入队。Git 集成、截图/OCR、计费商城、微服务拆分和跨区域主动-主动部署不纳入首期。
 
 ## DDD 规则摘要
 
