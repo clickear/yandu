@@ -101,6 +101,10 @@ public interface ReleaseMapper extends BaseMapper<ReleaseMapper.ReleaseRow> {
     ReleaseJobRow findJobByKey(@Param("projectId") long projectId,
                                @Param("actorId") long actorId, @Param("key") String key);
 
+    @Select("SELECT * FROM release_jobs WHERE project_id = #{projectId} AND created_by = #{actorId} AND idempotency_key = #{key} FOR UPDATE")
+    ReleaseJobRow findJobByKeyForUpdate(@Param("projectId") long projectId,
+                                        @Param("actorId") long actorId, @Param("key") String key);
+
     @Select("SELECT * FROM release_jobs WHERE status = 'QUEUED' ORDER BY created_at, id LIMIT #{limit}")
     List<ReleaseJobRow> findQueuedJobs(@Param("limit") int limit);
 

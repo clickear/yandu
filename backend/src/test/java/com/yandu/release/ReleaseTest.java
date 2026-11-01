@@ -69,6 +69,25 @@ class ReleaseTest {
     }
 
     @Test
+    void resolvesConcurrentIdempotentPublishWithCurrentLockingRead() {
+        var job = new ReleaseRepository.ReleaseJob(301L, 10L, "en-US", "json-flat-v1",
+                "publish-race", java.util.HexFormat.of().formatHex(sha256("en-US\njson-flat-v1")),
+                "QUEUED", null, null, 41L,
+                Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-01-01T00:00:00Z"));
+        given(repository.findJobByKey(10L, 41L, "publish-race")).willReturn(Optional.empty());
+        given(repository.findJobByKeyForUpdate(10L, 41L, "publish-race")).willReturn(Optional.of(job));
+        org.mockito.Mockito.doThrow(new org.springframework.dao.DuplicateKeyException("concurrent winner"))
+                .when(repository).insertJob(org.mockito.ArgumentMatchers.any());
+
+        var result = service.requestPublish(new ReleaseApplicationService.PublishRelease(
+                41L, 10L, "en-US", ReleaseApplicationService.JSON_FLAT), "publish-race");
+
+        assertEquals("301", result.id());
+        assertEquals("QUEUED", result.status());
+        verify(repository).findJobByKeyForUpdate(10L, 41L, "publish-race");
+    }
+
+    @Test
     void queuedReleaseBuildsSnapshotAndCompletesJob() {
         var queued = new ReleaseRepository.ReleaseJob(70L, 10L, "en-US", "json-flat-v1",
                 "publish-1", "hash", "QUEUED", null, null, 41L,

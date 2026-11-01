@@ -88,7 +88,9 @@ public class ReleaseApplicationService {
         try {
             releases.insertJob(job);
         } catch (DataIntegrityViolationException duplicate) {
-            var winner = releases.findJobByKey(command.projectId(), command.actorId(), idempotencyKey)
+            // Under MySQL REPEATABLE READ, the earlier plain lookup may have fixed an old snapshot.
+            // Use a current locking read so a concurrent committed winner is visible after duplicate key.
+            var winner = releases.findJobByKeyForUpdate(command.projectId(), command.actorId(), idempotencyKey)
                     .orElseThrow(() -> duplicate);
             return existing(winner, hash);
         }

@@ -72,6 +72,11 @@ public class MyBatisReleaseRepository implements ReleaseRepository {
     }
 
     @Override
+    public Optional<ReleaseJob> findJobByKeyForUpdate(long projectId, long actorId, String idempotencyKey) {
+        return Optional.ofNullable(mapper.findJobByKeyForUpdate(projectId, actorId, idempotencyKey)).map(this::job);
+    }
+
+    @Override
     public List<ReleaseJob> findQueuedJobs(int limit) {
         return mapper.findQueuedJobs(limit).stream().map(this::job).toList();
     }

@@ -27,6 +27,9 @@ public interface ReleaseRepository {
 
     Optional<ReleaseJob> findJobByKey(long projectId, long actorId, String idempotencyKey);
 
+    /** Current locking read used only after an insert loses an idempotency-key race. */
+    Optional<ReleaseJob> findJobByKeyForUpdate(long projectId, long actorId, String idempotencyKey);
+
     List<ReleaseJob> findQueuedJobs(int limit);
 
     List<ReleaseJob> listJobs(long projectId, String locale, int limit);
