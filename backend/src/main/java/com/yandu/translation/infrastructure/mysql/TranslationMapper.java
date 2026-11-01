@@ -43,7 +43,10 @@ public interface TranslationMapper extends BaseMapper<TranslationMapper.Translat
                     OR t.value LIKE CONCAT('%', #{keyword}, '%'))
                AND (#{status} = 'all'
                     OR (#{status} = 'untranslated' AND (t.id IS NULL OR t.value = ''))
-                    OR (#{status} = 'draft' AND t.value <> '' AND t.status <> 'APPROVED')
+                    OR (#{status} = 'draft' AND t.status = 'DRAFT')
+                    OR (#{status} = 'in-review' AND t.status = 'IN_REVIEW')
+                    OR (#{status} = 'changes-requested' AND t.status = 'CHANGES_REQUESTED')
+                    OR (#{status} = 'needs-review' AND t.status = 'NEEDS_REVIEW')
                     OR (#{status} = 'reviewed' AND t.status = 'APPROVED'))
              ORDER BY e.id DESC
              LIMIT #{limit} OFFSET #{offset}
@@ -67,7 +70,10 @@ public interface TranslationMapper extends BaseMapper<TranslationMapper.Translat
                     OR t.value LIKE CONCAT('%', #{keyword}, '%'))
                AND (#{status} = 'all'
                     OR (#{status} = 'untranslated' AND (t.id IS NULL OR t.value = ''))
-                    OR (#{status} = 'draft' AND t.value <> '' AND t.status <> 'APPROVED')
+                    OR (#{status} = 'draft' AND t.status = 'DRAFT')
+                    OR (#{status} = 'in-review' AND t.status = 'IN_REVIEW')
+                    OR (#{status} = 'changes-requested' AND t.status = 'CHANGES_REQUESTED')
+                    OR (#{status} = 'needs-review' AND t.status = 'NEEDS_REVIEW')
                     OR (#{status} = 'reviewed' AND t.status = 'APPROVED'))
             """)
     long countWorkspace(@Param("projectId") long projectId,
@@ -166,6 +172,18 @@ public interface TranslationMapper extends BaseMapper<TranslationMapper.Translat
                        @Param("reviewerId") long reviewerId,
                        @Param("createdAt") Instant createdAt);
 
+    @Select("""
+            SELECT decision, reason, reviewer_id, created_at
+              FROM translation_review_decisions
+             WHERE project_id = #{projectId} AND entry_id = #{entryId}
+               AND target_locale = #{locale}
+             ORDER BY decision_version DESC
+             LIMIT 1
+            """)
+    ReviewDecisionRow latestDecision(@Param("projectId") long projectId,
+                                     @Param("entryId") long entryId,
+                                     @Param("locale") String locale);
+
     @Update("""
             UPDATE translations
                SET status = 'NEEDS_REVIEW', version = version + 1,
@@ -199,6 +217,16 @@ public interface TranslationMapper extends BaseMapper<TranslationMapper.Translat
         private String entryKey;
         private String sourceText;
         private Long sourceRevision;
+    }
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    class ReviewDecisionRow {
+        private String decision;
+        private String reason;
+        private Long reviewerId;
+        private Instant createdAt;
     }
 
     @Getter

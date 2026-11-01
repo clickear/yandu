@@ -308,10 +308,22 @@ export function submitRemoteTranslation(projectId: string, entryId: string, loca
   })
 }
 
-export function approveRemoteTranslation(projectId: string, entryId: string, locale: string, version: number) {
+export function getRemoteTranslation(projectId: string, entryId: string, locale: string) {
+  return request<{ latestReviewDecision: 'APPROVE' | 'REQUEST_CHANGES' | null;
+    latestReviewReason: string | null; latestReviewAt: string | null }>(
+    `/projects/${projectId}/catalog/entries/${entryId}/translations/${encodeURIComponent(locale)}`,
+  )
+}
+
+export function reviewRemoteTranslation(projectId: string, entryId: string, locale: string,
+                                        version: number, decision: 'APPROVE' | 'REQUEST_CHANGES', reason = '') {
   return request(`/projects/${projectId}/catalog/entries/${entryId}/translations/${encodeURIComponent(locale)}/review`, {
-    method: 'POST', body: JSON.stringify({ expectedVersion: version, decision: 'APPROVE' }),
+    method: 'POST', body: JSON.stringify({ expectedVersion: version, decision, reason }),
   })
+}
+
+export function approveRemoteTranslation(projectId: string, entryId: string, locale: string, version: number) {
+  return reviewRemoteTranslation(projectId, entryId, locale, version, 'APPROVE')
 }
 
 export function previewRemoteImport(projectId: string, project: Project, locale: string, json: string,

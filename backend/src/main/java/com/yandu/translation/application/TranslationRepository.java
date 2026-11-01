@@ -25,6 +25,8 @@ public interface TranslationRepository {
     void recordDecision(Translation translation, long decidedVersion, Translation.Decision decision,
                        long reviewerId, String reason, Instant occurredAt);
 
+    Optional<ReviewFeedback> latestReviewFeedback(long projectId, long entryId, String locale);
+
     void markNeedsReview(long projectId, long entryId, long sourceRevision,
                          long sourceEditorId, Instant occurredAt);
 
@@ -37,4 +39,6 @@ public interface TranslationRepository {
 
     record MemoryMatch(long entryId, String key, String sourceText, String translation,
                        String locale, long translationVersion) { }
+
+    record ReviewFeedback(String decision, String reason, long reviewerId, Instant decidedAt) { }
 }

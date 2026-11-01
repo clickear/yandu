@@ -81,6 +81,13 @@ public class MyBatisTranslationRepository implements TranslationRepository {
     }
 
     @Override
+    public Optional<ReviewFeedback> latestReviewFeedback(long projectId, long entryId, String locale) {
+        var row = mapper.latestDecision(projectId, entryId, Translation.normalizeLocale(locale));
+        return Optional.ofNullable(row).map(decision -> new ReviewFeedback(decision.getDecision(),
+                decision.getReason(), decision.getReviewerId(), decision.getCreatedAt()));
+    }
+
+    @Override
     public void markNeedsReview(long projectId, long entryId, long sourceRevision,
                                 long sourceEditorId, Instant occurredAt) {
         mapper.markNeedsReview(projectId, entryId, sourceRevision, sourceEditorId, occurredAt);

@@ -822,6 +822,18 @@ tbody tr:hover {
   background: #eef8f3;
   color: #78ad92;
 }
+.status-in-review {
+  background: #edf3ff;
+  color: #4d6fa8;
+}
+.status-changes-requested {
+  background: #fff0ec;
+  color: #b75c40;
+}
+.status-needs-review {
+  background: #fff5df;
+  color: #9a6d1f;
+}
 .status-draft {
   background: #fff6e9;
   color: #ceac66;
@@ -1578,6 +1590,20 @@ th > span:not(.sr-only) {
   border-radius: 12px;
   background: #fbf8fd;
 }
+.review-feedback {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border: 1px solid #efc9ac;
+  border-radius: 12px;
+  background: #fff8f2;
+}
+.review-feedback h3 {
+  margin: 0 0 8px;
+  color: #81441e;
+  font-size: 13px;
+}
+.review-feedback p { margin: 0; white-space: pre-wrap; }
+.review-feedback time { display: block; margin-top: 8px; color: #786b63; font-size: 11px; }
 .memory-suggestions h3 {
   margin: 0 0 8px;
   color: #5f4b71;

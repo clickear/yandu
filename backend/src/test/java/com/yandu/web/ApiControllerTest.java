@@ -96,4 +96,42 @@ class ApiControllerTest {
         verify(workspace).create(new WorkspaceApplicationService.CreateProject(
                 101L, "Storefront", "zh-CN"));
     }
+
+    @Test
+    void translationReviewCanReturnWorkWithAnAuditableReason() throws Exception {
+        given(actors.resolve(any())).willReturn(41L);
+        given(translations.decide(any())).willReturn(new TranslationApplicationService.TranslationView(
+                "30", "10", "20", "en-US", "Sign in", 3,
+                com.yandu.translation.domain.Translation.Status.CHANGES_REQUESTED,
+                3, 3, false, "41", "REQUEST_CHANGES", "Clarify terminology", "41", null));
+
+        mvc.perform(post("/api/v1/projects/10/catalog/entries/20/translations/en-US/review")
+                        .with(jwt().jwt(token -> token.subject("external-subject")))
+                        .contentType("application/json")
+                        .content("""
+                                {"expectedVersion":2,"decision":"REQUEST_CHANGES","reason":"Clarify terminology"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CHANGES_REQUESTED"));
+
+        verify(translations).decide(new TranslationApplicationService.ReviewTranslation(
+                41L, 10L, 20L, "en-US", 2,
+                TranslationApplicationService.ReviewDecision.REQUEST_CHANGES, "Clarify terminology"));
+    }
+
+    @Test
+    void translationReadReturnsTheLatestReviewFeedback() throws Exception {
+        given(actors.resolve(any())).willReturn(41L);
+        given(translations.get(any())).willReturn(new TranslationApplicationService.TranslationView(
+                "30", "10", "20", "en-US", "Sign in", 3,
+                com.yandu.translation.domain.Translation.Status.CHANGES_REQUESTED,
+                3, 3, false, "41", "REQUEST_CHANGES", "Clarify terminology", "42",
+                java.time.Instant.parse("2026-10-01T12:00:00Z")));
+
+        mvc.perform(get("/api/v1/projects/10/catalog/entries/20/translations/en-US")
+                        .with(jwt().jwt(token -> token.subject("external-subject"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.latestReviewDecision").value("REQUEST_CHANGES"))
+                .andExpect(jsonPath("$.latestReviewReason").value("Clarify terminology"));
+    }
 }

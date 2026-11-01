@@ -48,6 +48,8 @@ import {
   archiveRemoteEntry,
   archiveRemoteGlossaryTerm,
   approveRemoteTranslation,
+  reviewRemoteTranslation,
+  getRemoteTranslation,
   backendConfigurationError,
   backendEnabled,
   createRemoteProject,
@@ -108,6 +110,11 @@ function readInitial() {
   }
 }
 
+const workflowStatusLabels: Record<string, string> = {
+  reviewed: '已审核', 'in-review': '审核中', 'changes-requested': '已退回',
+  'needs-review': '需复核', draft: '草稿', untranslated: '未翻译',
+}
+
 function readLocalProjectsForMigration(): Project[] {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
@@ -162,6 +169,7 @@ function TranslationEditor({
   backendMode = false,
   canReview = false,
   onApprove,
+  onRequestChanges,
 }: {
   entry: Entry
   project: Project
@@ -171,6 +179,7 @@ function TranslationEditor({
   backendMode?: boolean
   canReview?: boolean
   onApprove?: () => void | Promise<void>
+  onRequestChanges?: (reason: string) => void | Promise<void>
 }) {
   const initial = entry.translations[locale]
   const draftKey = `yandu.translation-draft.v1:${project.id}:${entry.id}:${locale}`
@@ -189,6 +198,8 @@ function TranslationEditor({
   const [suggestions, setSuggestions] = useState<Awaited<ReturnType<typeof loadMemorySuggestions>>>(
     { memory: [], terms: [] },
   )
+  const [reviewFeedback, setReviewFeedback] = useState<{ reason: string | null; at: string | null } | null>(null)
+  const [reviewFeedbackError, setReviewFeedbackError] = useState(false)
   useEffect(() => {
     if (!backendMode) return
     let active = true
@@ -197,6 +208,16 @@ function TranslationEditor({
       .catch(() => { if (active) setSuggestions({ memory: [], terms: [] }) })
     return () => { active = false }
   }, [backendMode, project.id, entry.id, locale])
+  useEffect(() => {
+    if (!backendMode || entry.workflowStatuses?.[locale] !== 'CHANGES_REQUESTED') return
+    let active = true
+    void getRemoteTranslation(project.id, entry.id, locale)
+      .then((translation) => {
+        if (active) setReviewFeedback({ reason: translation.latestReviewReason, at: translation.latestReviewAt })
+      })
+      .catch(() => { if (active) setReviewFeedbackError(true) })
+    return () => { active = false }
+  }, [backendMode, entry.workflowStatuses, project.id, entry.id, locale])
   const dirty = value !== (initial?.value ?? '') || reviewed !== (initial?.status === 'reviewed')
   const save = (submitForReview: boolean) => {
     void Promise.resolve(onSave(value, submitForReview)).then(() => {
@@ -229,6 +250,15 @@ function TranslationEditor({
         <div className="editor-key">
           <code>{entry.key}</code>
         </div>
+        {backendMode && entry.workflowStatuses?.[locale] === 'CHANGES_REQUESTED' && (
+          <section className="review-feedback" aria-label="审核退回意见">
+            <h3>审核意见 · 请修改后重新送审</h3>
+            {reviewFeedbackError ? <p role="alert">无法读取审核意见，请稍后重试。</p>
+              : reviewFeedback?.reason ? <p>{reviewFeedback.reason}</p>
+                : <p>正在读取审核意见…</p>}
+            {reviewFeedback?.at && <time>{new Date(reviewFeedback.at).toLocaleString()}</time>}
+          </section>
+        )}
         <div className="editor-grid">
           <div>
             <span className="field-caption">源文案 · {languageName(project.sourceLanguage)}</span>
@@ -302,9 +332,15 @@ function TranslationEditor({
             取消
           </button>
           {backendMode && canReview && entry.workflowStatuses?.[locale] === 'IN_REVIEW' && (
-            <button type="button" className="button secondary" disabled={dirty} onClick={() => void onApprove?.()}>
-              审核通过
-            </button>
+            <>
+              <button type="button" className="button secondary" disabled={dirty} onClick={() => {
+                const reason = window.prompt('请说明退回修改的原因')?.trim()
+                if (reason) void onRequestChanges?.(reason)
+              }}>退回修改</button>
+              <button type="button" className="button secondary" disabled={dirty} onClick={() => void onApprove?.()}>
+                审核通过
+              </button>
+            </>
           )}
           {backendMode ? (
             <>
@@ -1092,8 +1128,13 @@ export default function App() {
                   >
                     <option value="all">全部状态</option>
                     <option value="untranslated">未翻译</option>
-                    <option value="draft">待审核</option>
+                    <option value="draft">草稿</option>
                     <option value="reviewed">已审核</option>
+                    {backendEnabled && <>
+                      <option value="in-review">审核中</option>
+                      <option value="changes-requested">已退回</option>
+                      <option value="needs-review">需复核</option>
+                    </>}
                   </select>
                   <div className="toolbar-actions">
                     <button className="button plain" onClick={() => openModal('import')}>
@@ -1134,7 +1175,13 @@ export default function App() {
                     </thead>
                     <tbody>
                       {visible.map((entry, index) => {
-                        const status = statusOf(entry, locale)
+                        const workflowStatus = backendEnabled ? entry.workflowStatuses?.[locale] : null
+                        const status = !backendEnabled ? statusOf(entry, locale)
+                          : workflowStatus === 'APPROVED' ? 'reviewed'
+                            : workflowStatus === 'IN_REVIEW' ? 'in-review'
+                              : workflowStatus === 'CHANGES_REQUESTED' ? 'changes-requested'
+                                : workflowStatus === 'NEEDS_REVIEW' ? 'needs-review'
+                                  : workflowStatus === 'DRAFT' ? 'draft' : 'untranslated'
                         return (
                           <tr key={entry.id}>
                             <td className="row-index">{String((remotePage - 1) * 50 + index + 1).padStart(2, '0')}</td>
@@ -1150,11 +1197,7 @@ export default function App() {
                             <td>
                               <span className={`status-badge status-${status}`}>
                                 <span />
-                                {status === 'reviewed'
-                                  ? '已审核'
-                                  : status === 'draft'
-                                    ? '待审核'
-                                    : '未翻译'}
+                                {workflowStatusLabels[status]}
                               </span>
                             </td>
                             <td className="row-actions">
@@ -1917,6 +1960,17 @@ export default function App() {
               notify('审核已通过。')
             } catch (error) {
               notify(error instanceof Error ? error.message : '审核失败。', true)
+            }
+          }}
+          onRequestChanges={async (reason) => {
+            try {
+              await reviewRemoteTranslation(project.id, editing.id, locale,
+                editing.versions?.[locale] ?? 0, 'REQUEST_CHANGES', reason)
+              setRemoteRefresh((count) => count + 1)
+              setEditingId(null)
+              notify('译文已退回修改，并记录了审核原因。')
+            } catch (error) {
+              notify(error instanceof Error ? error.message : '退回译文失败。', true)
             }
           }}
         />

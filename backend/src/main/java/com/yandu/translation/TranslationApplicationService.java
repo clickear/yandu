@@ -169,7 +169,9 @@ public class TranslationApplicationService {
         var translation = translations.find(query.projectId(), query.entryId(), query.locale())
                 .orElseThrow(() -> new TranslationNotFoundException(
                         query.entryId(), query.locale()));
-        return view(translation, sourceRevision);
+        var feedback = translations.latestReviewFeedback(query.projectId(), query.entryId(),
+                translation.locale()).orElse(null);
+        return view(translation, sourceRevision, feedback);
     }
 
     @Transactional(readOnly = true)
@@ -334,12 +336,21 @@ public class TranslationApplicationService {
     }
 
     private static TranslationView view(Translation translation, long sourceRevision) {
+        return view(translation, sourceRevision, null);
+    }
+
+    private static TranslationView view(Translation translation, long sourceRevision,
+                                        TranslationRepository.ReviewFeedback feedback) {
         return new TranslationView(Long.toString(translation.id()),
                 Long.toString(translation.projectId()), Long.toString(translation.entryId()),
                 translation.locale(), translation.value(), translation.basedOnSourceRevision(),
                 translation.status(), translation.version(), sourceRevision,
                 translation.basedOnSourceRevision() < sourceRevision,
-                translation.translatedBy() == 0 ? null : Long.toString(translation.translatedBy()));
+                translation.translatedBy() == 0 ? null : Long.toString(translation.translatedBy()),
+                feedback == null ? null : feedback.decision(),
+                feedback == null ? null : feedback.reason(),
+                feedback == null ? null : Long.toString(feedback.reviewerId()),
+                feedback == null ? null : feedback.decidedAt());
     }
 
     public record SaveTranslation(long actorId, long projectId, long entryId, String locale,
@@ -383,7 +394,9 @@ public class TranslationApplicationService {
     public record TranslationView(String id, String projectId, String entryId, String locale,
                                   String value, long basedOnSourceRevision, Translation.Status status,
                                   long version, long currentSourceRevision, boolean sourceIsNewer,
-                                  String translatedBy) {
+                                  String translatedBy, String latestReviewDecision,
+                                  String latestReviewReason, String latestReviewerId,
+                                  java.time.Instant latestReviewAt) {
     }
 
     public record SearchWorkspace(long actorId, long projectId, long namespaceId, String locale,
@@ -393,8 +406,9 @@ public class TranslationApplicationService {
             if (locale == null || locale.isBlank() || page < 1 || pageSize < 1 || pageSize > 100) {
                 throw new IllegalArgumentException("locale is required; pageSize must be between 1 and 100");
             }
-            if (status == null || !List.of("all", "untranslated", "draft", "reviewed").contains(status)) {
-                throw new IllegalArgumentException("status must be all, untranslated, draft or reviewed");
+            if (status == null || !List.of("all", "untranslated", "draft", "reviewed",
+                    "in-review", "changes-requested", "needs-review").contains(status)) {
+                throw new IllegalArgumentException("Unsupported translation workspace status filter");
             }
             if (keyword != null && keyword.isBlank()) keyword = null;
         }
