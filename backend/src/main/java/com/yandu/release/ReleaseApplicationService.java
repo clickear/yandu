@@ -4,9 +4,10 @@ import com.yandu.audit.AuditLog;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yandu.release.application.ReleaseRepository;
-import com.yandu.release.application.ReleaseRepository.ReleaseLine;
 import com.yandu.release.application.ReleaseRepository.ReleaseSnapshot;
 import com.yandu.release.application.ReleaseRepository.ReleaseJob;
+import com.yandu.release.domain.Release;
+import com.yandu.release.domain.Release.RejectedException;
 import com.yandu.workspace.ProjectAccessPolicy;
 import com.yandu.workspace.WorkspaceApplicationService;
 import java.nio.charset.StandardCharsets;
@@ -20,7 +21,6 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.LongSupplier;
-import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.core.task.TaskExecutor;
@@ -35,9 +35,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class ReleaseApplicationService {
 
-    public static final String JSON_FLAT = "json-flat-v1";
-    public static final String JAVA_PROPERTIES = "java-properties-v1";
-    private static final Pattern PLACEHOLDER = Pattern.compile("\\{([A-Za-z_][A-Za-z0-9_.-]*)}");
+    public static final String JSON_FLAT = Release.JSON_FLAT;
+    public static final String JAVA_PROPERTIES = Release.JAVA_PROPERTIES;
     private final ReleaseRepository releases;
     private final WorkspaceApplicationService workspace;
     private final ProjectAccessPolicy access;
@@ -185,33 +184,24 @@ public class ReleaseApplicationService {
         var project = workspace.getProject(command.actorId(), command.projectId());
         requireActiveProject(project);
         var locale = WorkspaceApplicationService.normalizeLocale(command.locale());
-        var format = normalizeFormat(command.format());
+        var format = Release.normalizeFormat(command.format());
         if (!project.targetLocales().contains(locale)) {
             throw new IllegalArgumentException("Release locale is not configured for this project");
         }
 
-        var lines = releases.lines(command.projectId(), locale);
-        if (lines.isEmpty()) throw new ReleaseGateException(List.of("项目没有可发布的资源条目"));
-        var content = new TreeMap<String, String>();
-        var failures = new java.util.ArrayList<String>();
-        var manifestEntries = new java.util.ArrayList<ManifestEntry>();
-        for (var line : lines) {
-            validate(line, locale, failures);
-            if (content.putIfAbsent(line.key(), line.translation()) != null) {
-                failures.add("资源键在多个命名空间中重复: " + line.key());
-            }
-            manifestEntries.add(new ManifestEntry(Long.toString(line.entryId()), line.key(),
-                    line.sourceRevision(), line.translationVersion()));
+        Release release;
+        try {
+            release = Release.prepare(locale, format, releases.lines(command.projectId(), locale));
+        } catch (RejectedException rejected) {
+            throw new ReleaseGateException(rejected.failures());
         }
-        if (!failures.isEmpty()) throw new ReleaseGateException(failures);
 
         String snapshot;
         String manifest;
         try {
-            snapshot = JSON_FLAT.equals(format) ? json.writeValueAsString(content) + "\n"
-                    : properties(content);
-            manifest = json.writeValueAsString(new ReleaseManifest(format, locale,
-                    manifestEntries, List.of("PLACEHOLDER_MISMATCH")));
+            snapshot = JSON_FLAT.equals(format) ? json.writeValueAsString(release.content()) + "\n"
+                    : properties(new TreeMap<>(release.content()));
+            manifest = json.writeValueAsString(release.manifest());
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Could not serialize release snapshot", exception);
         }
@@ -221,8 +211,8 @@ public class ReleaseApplicationService {
         notifyPublished(stored);
         audit.record(command.projectId(), command.actorId(), "RELEASE_PUBLISHED", "RELEASE",
                 stored.id(), java.util.Map.of("locale", locale, "format", format, "version", stored.version(),
-                        "checksumSha256", checksum, "entryCount", content.size()));
-        return view(stored, content.size());
+                        "checksumSha256", checksum, "entryCount", release.entryCount()));
+        return view(stored, release.entryCount());
     }
 
     private static void requireActiveProject(WorkspaceApplicationService.ProjectView project) {
@@ -257,7 +247,7 @@ public class ReleaseApplicationService {
     public List<ReleaseView> history(long actorId, long projectId, String locale, String format) {
         access.requireCanReadProject(actorId, projectId);
         var normalizedLocale = locale == null ? null : WorkspaceApplicationService.normalizeLocale(locale);
-        var normalizedFormat = format == null ? null : normalizeFormat(format);
+        var normalizedFormat = format == null ? null : Release.normalizeFormat(format);
         return releases.list(projectId, normalizedLocale, normalizedFormat, 100).stream()
                 .map(snapshot -> view(verify(snapshot), countEntries(snapshot)))
                 .toList();
@@ -280,7 +270,7 @@ public class ReleaseApplicationService {
     @Transactional(readOnly = true)
     public PublicReleaseMetadata latestPublished(long projectId, String locale, String format) {
         var normalizedLocale = WorkspaceApplicationService.normalizeLocale(locale);
-        var normalizedFormat = normalizeFormat(format);
+        var normalizedFormat = Release.normalizeFormat(format);
         return releases.latestPublished(projectId, normalizedLocale, normalizedFormat)
                 .map(snapshot -> new PublicReleaseMetadata(Long.toString(snapshot.id()),
                         Long.toString(snapshot.projectId()), snapshot.locale(), snapshot.format(),
@@ -292,7 +282,7 @@ public class ReleaseApplicationService {
     @Transactional(readOnly = true)
     public String downloadPublished(long projectId, String locale, String format, long releaseId) {
         var normalizedLocale = WorkspaceApplicationService.normalizeLocale(locale);
-        var normalizedFormat = normalizeFormat(format);
+        var normalizedFormat = Release.normalizeFormat(format);
         var snapshot = releases.find(projectId, releaseId)
                 .filter(candidate -> candidate.locale().equals(normalizedLocale)
                         && candidate.format().equals(normalizedFormat))
@@ -320,35 +310,6 @@ public class ReleaseApplicationService {
                 java.util.Map.of("locale", snapshot.locale(), "version", snapshot.version(),
                         "checksumSha256", snapshot.checksum()));
         return snapshot.content();
-    }
-
-    private static void validate(ReleaseLine line, String locale, List<String> failures) {
-        if (!"APPROVED".equals(line.status())) {
-            failures.add(line.key() + "（" + locale + "）：译文尚未审核通过");
-            return;
-        }
-        if (line.translationSourceRevision() != line.sourceRevision()) {
-            failures.add(line.key() + "（" + locale + "）：译文基于旧版源文");
-            return;
-        }
-        if (!placeholders(line.sourceText()).equals(placeholders(line.translation()))) {
-            failures.add(line.key() + "（" + locale + "）：命名占位符与源文不一致");
-        }
-    }
-
-    private static java.util.Map<String, Integer> placeholders(String value) {
-        var result = new java.util.TreeMap<String, Integer>();
-        var matcher = PLACEHOLDER.matcher(value == null ? "" : value);
-        while (matcher.find()) result.merge(matcher.group(1), 1, Integer::sum);
-        return result;
-    }
-
-    private static String normalizeFormat(String format) {
-        if (format == null || format.isBlank()) return JSON_FLAT;
-        if (!JSON_FLAT.equals(format) && !JAVA_PROPERTIES.equals(format)) {
-            throw new IllegalArgumentException("format must be json-flat-v1 or java-properties-v1");
-        }
-        return format;
     }
 
     /** Emits stable ASCII accepted by Java Properties.load(InputStream). */
@@ -446,7 +407,7 @@ public class ReleaseApplicationService {
             if (actorId <= 0 || projectId <= 0 || locale == null || locale.isBlank()) {
                 throw new IllegalArgumentException("actorId, projectId and locale are required");
             }
-            format = normalizeFormat(format);
+            format = Release.normalizeFormat(format);
         }
     }
 
@@ -467,18 +428,15 @@ public class ReleaseApplicationService {
                                  String status, String releaseId, String error,
                                  java.time.Instant createdAt, java.time.Instant updatedAt) { }
 
-    public record ReleaseManifest(String format, String locale, List<ManifestEntry> entries,
-                                  List<String> passedQualityRules) { }
-
-    public record ManifestEntry(String entryId, String key, long sourceRevision,
-                                long translationVersion) { }
-
+    /** Stable release-module error exposed to the web adapter, independent of domain internals. */
     public static final class ReleaseGateException extends RuntimeException {
         private final List<String> failures;
+
         public ReleaseGateException(List<String> failures) {
             super("Release quality gate failed");
             this.failures = List.copyOf(failures);
         }
+
         public List<String> failures() { return failures; }
     }
 

@@ -10,7 +10,7 @@ import static org.mockito.Mockito.verify;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yandu.audit.AuditLog;
 import com.yandu.release.application.ReleaseRepository;
-import com.yandu.release.application.ReleaseRepository.ReleaseLine;
+import com.yandu.release.domain.Release.Entry;
 import com.yandu.workspace.ProjectAccessPolicy;
 import com.yandu.workspace.WorkspaceApplicationService;
 import java.time.Clock;
@@ -84,7 +84,7 @@ class ReleaseTest {
         given(repository.claimJob(org.mockito.ArgumentMatchers.eq(70L), org.mockito.ArgumentMatchers.any()))
                 .willReturn(true);
         given(repository.findJobForUpdate(10L, 70L)).willReturn(Optional.of(running));
-        given(repository.lines(10L, "en-US")).willReturn(List.of(new ReleaseLine(20L, "home.title",
+        given(repository.lines(10L, "en-US")).willReturn(List.of(new Entry(20L, "home.title",
                 "Hello", 3, "Bonjour", "APPROVED", 3, 2)));
         given(repository.create(org.mockito.ArgumentMatchers.eq(300L),
                 org.mockito.ArgumentMatchers.eq(10L), org.mockito.ArgumentMatchers.eq("en-US"),
@@ -152,7 +152,7 @@ class ReleaseTest {
         var command = new ReleaseApplicationService.PublishRelease(41L, 10L, "en-US",
                 ReleaseApplicationService.JAVA_PROPERTIES);
         given(repository.lines(10L, "en-US")).willReturn(List.of(
-                new ReleaseLine(20L, "a key=雪", "source", 3,
+                new Entry(20L, "a key=雪", "source", 3,
                         "  café\\x\n", "APPROVED", 3, 2)));
         given(repository.create(org.mockito.ArgumentMatchers.eq(300L),
                 org.mockito.ArgumentMatchers.eq(10L), org.mockito.ArgumentMatchers.eq("en-US"),
@@ -179,7 +179,7 @@ class ReleaseTest {
     void publishesSnapshotAndBlocksStaleTranslations() {
         var command = new ReleaseApplicationService.PublishRelease(41L, 10L, "en-US");
         given(repository.lines(10L, "en-US")).willReturn(List.of(
-                new ReleaseLine(20L, "home.title", "Hello {user}", 3,
+                new Entry(20L, "home.title", "Hello {user}", 3,
                         "Bonjour {user}", "APPROVED", 3, 2)));
         given(repository.create(org.mockito.ArgumentMatchers.eq(300L),
                 org.mockito.ArgumentMatchers.eq(10L), org.mockito.ArgumentMatchers.eq("en-US"),
@@ -201,10 +201,16 @@ class ReleaseTest {
         verify(access).requireCanPublish(41L, 10L);
 
         given(repository.lines(10L, "en-US")).willReturn(List.of(
-                new ReleaseLine(20L, "home.title", "Hello {user}", 4,
+                new Entry(20L, "home.title", "Hello {user}", 4,
                         "Bonjour {user}", "APPROVED", 3, 2)));
         assertThrows(ReleaseApplicationService.ReleaseGateException.class,
                 () -> service.publish(command));
+
+        given(repository.lines(10L, "en-US")).willReturn(List.of(
+                new Entry(20L, "home.title", "Hello", 3, "  ", "APPROVED", 3, 2)));
+        var emptyTranslation = assertThrows(ReleaseApplicationService.ReleaseGateException.class,
+                () -> service.publish(command));
+        assertTrue(emptyTranslation.failures().getFirst().contains("译文不能为空"));
     }
 
     @Test

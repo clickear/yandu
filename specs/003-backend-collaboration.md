@@ -37,6 +37,7 @@ Spring Boot、Spring Modulith 与 Spring Security 的选择依据及其职责边
 - 任一源文本变更使该词条全部目标译文转为 `NEEDS_REVIEW`，并留下源版本变更事件；译文更新必须带期望版本，冲突返回可恢复的 409。
 - 审核是针对具体译文版本的不可变决定；被编辑的新版本撤销原审核有效性，审核人不能审核自己的译文（管理员代审需明确审计原因）。
 - 发布版本是不可变快照，记录词条源版本、译文版本、质量报告、操作者与资源校验和；回滚创建指向旧内容的新发布，不改写历史。
+- `Release` 领域聚合判定可发布译文资格：内容必须非空、已审核、基于当前源文版本且命名占位符一致；应用服务只编排授权、任务、序列化和持久化。
 - 每个命令先验证项目成员权限和领域不变量；本期没有组织租户上下文，不接受客户端伪造租户 ID 来代替授权。
 - 项目成员在整个项目内仅有一个角色；Owner/Admin 管理设置，Translator 编辑译文并送审，Reviewer 审核，Viewer 只读；Admin 不能管理 Owner/Admin，Owner 只能转让给现有 Admin。
 - 项目、语言、命名空间和词条可恢复归档且不硬删除；源语言不可改，目标语言可归档但至少保留一个启用目标语言。旧发布保持不可变并继续供有权限成员下载。
@@ -58,6 +59,8 @@ JSON 导入任务工作台可读取项目最近 20 项任务，查看新增/更�
 发布消费端 B14 已有匿名只读的 latest 元数据/内容 API，以及独立 `integrations/yandu-translation-spring-boot-starter` Maven artifact。Starter 支持 JSON Flat v1 与 Java Properties v1，下载前读取元数据、校验 SHA-256 后原子替换内存快照；失败时保留旧快照并重试。B15 的 Netty TCP 与 WebSocket 服务端通知和可配置客户端已实现；各传输客户端位于单独 Maven 模块，基础 Starter 不引入 Netty。后端包含真实 Netty socket 和 WebSocket handler 测试，消费者 Netty/WebSocket 模块均有本地协议测试。上述 API 与同步查询尚未在 MySQL 8.0 实例验证，artifact 尚未发布到公共 Maven 仓库。
 
 机器翻译通过可配置 HTTP provider 纳入主流程，支持 LibreTranslate-compatible `/translate` 及 OpenAI-compatible Chat Completions（可接大模型 API 或第三方兼容网关）。设置 `YANDU_MT_PROVIDER`、`YANDU_MT_BASE_URL`，大模型还需 `YANDU_MT_MODEL`；必要时设置服务端 `YANDU_MT_API_KEY`。可为当前目标语言创建幂等异步任务，最多四个 worker 并发执行，按词条展示进度/失败并重试；空 provider 结果记录为失败，不创建空译文；有效结果只写入草稿，回填时锁源词条并比较源修订、译文版本和空值，版本变化或人工已译时跳过。provider 未配置时返回 503，不创建任务。MySQL 8.0.46 上 V1–V9 已执行；本地数据库端到端 API 流程验证了幂等创建、机器结果草稿回填、人工修订/审核和发布导出，协议 stub 下人工编辑与源版本竞争均安全跳过。真实外部 provider 调用、部署 IdP 和多实例并发仍未验证。
+
+发布门禁位于 `release.domain.Release`：工作流应用服务取得项目/语言下的当前词条投影后，由领域聚合校验译文非空、审核通过、源版本匹配和命名占位符一致，再由应用层负责格式序列化、校验和及快照持久化。历史代码曾仅依赖“已审核”状态而未独立拒绝空白存量译文；该边界现已补齐。JDK 21 下后端全套 72 项测试及 Spring Modulith 边界检查通过；本次领域调整未改 MySQL SQL，但没有重新运行 MySQL 8.0 发布集成流程。
 
 工程取舍：优先沿现有模块扩展，不为单一小操作拆出一组类型或单独测试类。用例验证按大模块集中执行；小改动先做编译和差异检查，避免频繁运行全套测试。
 

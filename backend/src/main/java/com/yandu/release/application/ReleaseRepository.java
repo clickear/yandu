@@ -1,5 +1,6 @@
 package com.yandu.release.application;
 
+import com.yandu.release.domain.Release.Entry;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -18,7 +19,7 @@ public interface ReleaseRepository {
 
     List<ReleaseSnapshot> list(long projectId, String locale, String format, int limit);
 
-    List<ReleaseLine> lines(long projectId, String locale);
+    List<Entry> lines(long projectId, String locale);
 
     Optional<ReleaseJob> findJob(long projectId, long jobId);
 
@@ -50,10 +51,6 @@ public interface ReleaseRepository {
     record ReleaseMetadata(long id, long projectId, String locale, String format, long version,
                            Long rollbackOfReleaseId, String manifest, String checksum,
                            long publishedBy, Instant publishedAt) { }
-
-    record ReleaseLine(long entryId, String key, String sourceText, long sourceRevision,
-                       String translation, String status, long translationSourceRevision,
-                       long translationVersion) { }
 
     record ReleaseJob(long id, long projectId, String locale, String format,
                       String idempotencyKey, String requestHash, String status,

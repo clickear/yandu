@@ -1,6 +1,7 @@
 package com.yandu.release.infrastructure.mysql;
 
 import com.yandu.release.application.ReleaseRepository;
+import com.yandu.release.domain.Release.Entry;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -48,9 +49,9 @@ public class MyBatisReleaseRepository implements ReleaseRepository {
         return mapper.findSnapshots(projectId, locale, format, limit).stream().map(this::snapshot).toList();
     }
 
-    public List<ReleaseLine> lines(long projectId, String locale) {
+    public List<Entry> lines(long projectId, String locale) {
         return mapper.findLines(projectId, locale).stream()
-                .map(row -> new ReleaseLine(row.getEntryId(), row.getEntryKey(), row.getSourceText(),
+                .map(row -> new Entry(row.getEntryId(), row.getEntryKey(), row.getSourceText(),
                         row.getSourceRevision(), row.getTranslation(), row.getTranslationStatus(),
                         row.getTranslationSourceRevision(), row.getTranslationVersion())).toList();
     }
