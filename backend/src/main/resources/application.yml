@@ -23,6 +23,13 @@ spring:
           audiences:
             - ${YANDU_OIDC_AUDIENCE}
 
+springdoc:
+  api-docs:
+    path: /api/v1/openapi
+    version: OPENAPI_3_1
+  packages-to-scan: com.yandu.web
+  paths-to-match: /api/v1/**
+
 management:
   endpoints:
     web:

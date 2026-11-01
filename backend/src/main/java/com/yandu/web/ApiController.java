@@ -12,6 +12,11 @@ import com.yandu.workspace.WorkspaceApplicationService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.media.Schema;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -32,6 +37,8 @@ import org.springframework.web.bind.annotation.RestController;
 /** Versioned JSON endpoints for project setup and source catalog workflows. */
 @RestController
 @RequestMapping("/api/v1")
+@Tag(name = "YANDU", description = "项目、资源、翻译协作和交付工作流")
+@SecurityRequirement(name = "bearerAuth")
 public class ApiController {
 
     private final CurrentActor actors;
@@ -65,33 +72,35 @@ public class ApiController {
 
     @PostMapping("/projects")
     @ResponseStatus(HttpStatus.CREATED)
+    @Operation(summary = "创建项目", description = "创建项目及其源语言、目标语言和默认命名空间。")
     public WorkspaceApplicationService.ProjectView createProject(
-            @AuthenticationPrincipal Jwt principal, @Valid @RequestBody CreateProjectBody body) {
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @Valid @RequestBody CreateProjectBody body) {
         return workspace.create(new WorkspaceApplicationService.CreateProject(
                 actors.resolve(principal), body.name(), body.sourceLocale(), body.description(),
                 body.targetLocales() == null ? null : java.util.Set.copyOf(body.targetLocales())));
     }
 
     @GetMapping("/me")
-    public CurrentActorView currentActor(@AuthenticationPrincipal Jwt principal) {
+    public CurrentActorView currentActor(@Parameter(hidden = true) @AuthenticationPrincipal Jwt principal) {
         return new CurrentActorView(Long.toString(actors.resolve(principal)));
     }
 
     @GetMapping("/projects/{projectId}")
     public WorkspaceApplicationService.ProjectView getProject(
-            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId) {
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId) {
         return workspace.getProject(actors.resolve(principal), projectId);
     }
 
     @GetMapping("/projects")
     public java.util.List<WorkspaceApplicationService.ProjectView> listProjects(
-            @AuthenticationPrincipal Jwt principal) {
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal) {
         return workspace.listProjects(actors.resolve(principal));
     }
 
     @PostMapping("/projects/{projectId}/languages")
+    @Operation(summary = "添加目标语言")
     public WorkspaceApplicationService.ProjectView addTargetLocale(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @Valid @RequestBody TargetLocaleBody body) {
         return workspace.addTargetLocale(new WorkspaceApplicationService.AddTargetLocale(
@@ -100,15 +109,16 @@ public class ApiController {
 
     @GetMapping("/projects/{projectId}/namespaces")
     public java.util.List<WorkspaceApplicationService.NamespaceView> namespaces(
-            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
             @RequestParam(defaultValue = "false") boolean includeArchived) {
         return workspace.namespaces(actors.resolve(principal), projectId, includeArchived);
     }
 
     @PostMapping("/projects/{projectId}/namespaces")
     @ResponseStatus(HttpStatus.CREATED)
+    @Operation(summary = "创建命名空间")
     public WorkspaceApplicationService.NamespaceView createNamespace(
-            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
             @Valid @RequestBody CreateNamespaceBody body) {
         return workspace.createNamespace(new WorkspaceApplicationService.CreateNamespace(
                 actors.resolve(principal), projectId, body.name()));
@@ -116,14 +126,14 @@ public class ApiController {
 
     @PutMapping("/projects/{projectId}/namespaces/{namespaceId}")
     public WorkspaceApplicationService.NamespaceView renameNamespace(
-            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
             @PathVariable long namespaceId, @Valid @RequestBody CreateNamespaceBody body) {
         return workspace.renameNamespace(new WorkspaceApplicationService.RenameNamespace(
                 actors.resolve(principal), projectId, namespaceId, body.name()));
     }
 
     @DeleteMapping("/projects/{projectId}/namespaces/{namespaceId}")
-    public void archiveNamespace(@AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+    public void archiveNamespace(@Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
                                  @PathVariable long namespaceId) {
         workspace.archiveNamespace(new WorkspaceApplicationService.NamespaceCommand(
                 actors.resolve(principal), projectId, namespaceId));
@@ -131,14 +141,14 @@ public class ApiController {
 
     @PostMapping("/projects/{projectId}/namespaces/{namespaceId}/restore")
     public WorkspaceApplicationService.NamespaceView restoreNamespace(
-            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
             @PathVariable long namespaceId) {
         return workspace.restoreNamespace(new WorkspaceApplicationService.NamespaceCommand(
                 actors.resolve(principal), projectId, namespaceId));
     }
 
     @GetMapping("/projects/{projectId}/members")
-    public java.util.List<ProjectMemberView> members(@AuthenticationPrincipal Jwt principal,
+    public java.util.List<ProjectMemberView> members(@Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
                                                      @PathVariable long projectId) {
         return workspace.members(actors.resolve(principal), projectId).stream()
                 .map(member -> new ProjectMemberView(Long.toString(member.userId()),
@@ -148,7 +158,7 @@ public class ApiController {
 
     @PostMapping("/projects/{projectId}/members")
     @ResponseStatus(HttpStatus.CREATED)
-    public void addMember(@AuthenticationPrincipal Jwt principal,
+    public void addMember(@Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
                           @PathVariable long projectId,
                           @Valid @RequestBody AddMemberBody body) {
         workspace.addMember(new WorkspaceApplicationService.AddMember(
@@ -156,34 +166,35 @@ public class ApiController {
     }
 
     @PutMapping("/projects/{projectId}/members/{userId}")
-    public void changeMemberRole(@AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+    public void changeMemberRole(@Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
                                  @PathVariable long userId, @Valid @RequestBody ChangeMemberRoleBody body) {
         workspace.changeMemberRole(new WorkspaceApplicationService.ChangeMemberRole(
                 actors.resolve(principal), projectId, userId, body.role()));
     }
 
     @DeleteMapping("/projects/{projectId}/members/{userId}")
-    public void removeMember(@AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+    public void removeMember(@Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
                              @PathVariable long userId) {
         workspace.removeMember(new WorkspaceApplicationService.RemoveMember(
                 actors.resolve(principal), projectId, userId));
     }
 
     @PostMapping("/projects/{projectId}/leave")
-    public void leaveProject(@AuthenticationPrincipal Jwt principal, @PathVariable long projectId) {
+    public void leaveProject(@Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId) {
         workspace.leaveProject(actors.resolve(principal), projectId);
     }
 
     @PostMapping("/projects/{projectId}/ownership-transfer")
-    public void transferProjectOwnership(@AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+    public void transferProjectOwnership(@Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
                                          @Valid @RequestBody TransferOwnershipBody body) {
         workspace.transferOwnership(new WorkspaceApplicationService.TransferOwnership(
                 actors.resolve(principal), projectId, positiveId(body.newOwnerId(), "newOwnerId")));
     }
 
     @PostMapping("/projects/{projectId}/machine-translation-jobs")
+    @Operation(summary = "创建机器翻译任务", description = "对符合条件的未译文案排队；提供 Idempotency-Key 后重复请求返回同一任务。结果只保存为草稿。")
     public ResponseEntity<MachineTranslationApplicationService.JobView> createMachineTranslationJob(
-            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody CreateMachineTranslationJobBody body) {
         var job = machineTranslations.create(new MachineTranslationApplicationService.CreateJob(
@@ -195,20 +206,22 @@ public class ApiController {
 
     @GetMapping("/projects/{projectId}/machine-translation-jobs")
     public java.util.List<MachineTranslationApplicationService.JobView> machineTranslationJobs(
-            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId) {
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId) {
         return machineTranslations.list(actors.resolve(principal), projectId);
     }
 
     @GetMapping("/projects/{projectId}/machine-translation-jobs/{jobId}")
     public MachineTranslationApplicationService.JobView machineTranslationJob(
-            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId, @PathVariable long jobId) {
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId, @PathVariable long jobId) {
         return machineTranslations.get(actors.resolve(principal), projectId, jobId);
     }
 
     @GetMapping("/projects/{projectId}/machine-translation-jobs/{jobId}/items")
+    @Operation(summary = "分页查看机器翻译词条结果")
     public MachineTranslationApplicationService.JobItemPage machineTranslationJobItems(
-            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId, @PathVariable long jobId,
-            @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "50") int pageSize) {
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId, @PathVariable long jobId,
+            @Parameter(description = "从 1 开始的页码") @RequestParam(defaultValue = "1") int page,
+            @Parameter(description = "每页条数，最大 200") @RequestParam(defaultValue = "50") int pageSize) {
         if (page < 1 || pageSize < 1 || pageSize > 200) {
             throw new IllegalArgumentException("page must be positive and pageSize must be between 1 and 200");
         }
@@ -216,46 +229,48 @@ public class ApiController {
     }
 
     @PostMapping("/projects/{projectId}/machine-translation-jobs/{jobId}/retry")
+    @Operation(summary = "重试机器翻译失败词条")
     public MachineTranslationApplicationService.JobView retryMachineTranslationJob(
-            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId, @PathVariable long jobId) {
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId, @PathVariable long jobId) {
         return machineTranslations.retry(new MachineTranslationApplicationService.RetryJob(
                 actors.resolve(principal), projectId, jobId));
     }
 
     @PostMapping("/projects/{projectId}/archive")
-    public void archiveProject(@AuthenticationPrincipal Jwt principal, @PathVariable long projectId) {
+    public void archiveProject(@Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId) {
         workspace.archiveProject(actors.resolve(principal), projectId);
     }
 
     @PostMapping("/projects/{projectId}/restore")
-    public void restoreProject(@AuthenticationPrincipal Jwt principal, @PathVariable long projectId) {
+    public void restoreProject(@Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId) {
         workspace.restoreProject(actors.resolve(principal), projectId);
     }
 
     @DeleteMapping("/projects/{projectId}/languages/{locale}")
-    public java.util.List<String> archiveTargetLocale(@AuthenticationPrincipal Jwt principal,
+    public java.util.List<String> archiveTargetLocale(@Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
                                                        @PathVariable long projectId,
                                                        @PathVariable String locale) {
         return workspace.archiveTargetLocale(actors.resolve(principal), projectId, locale);
     }
 
     @PostMapping("/projects/{projectId}/languages/{locale}/restore")
-    public java.util.List<String> restoreTargetLocale(@AuthenticationPrincipal Jwt principal,
+    public java.util.List<String> restoreTargetLocale(@Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
                                                        @PathVariable long projectId,
                                                        @PathVariable String locale) {
         return workspace.restoreTargetLocale(actors.resolve(principal), projectId, locale);
     }
 
     @GetMapping("/projects/{projectId}/languages/archived")
-    public java.util.List<String> archivedTargetLocales(@AuthenticationPrincipal Jwt principal,
+    public java.util.List<String> archivedTargetLocales(@Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
                                                         @PathVariable long projectId) {
         return workspace.archivedTargetLocales(actors.resolve(principal), projectId);
     }
 
     @PostMapping("/projects/{projectId}/catalog/entries")
     @ResponseStatus(HttpStatus.CREATED)
+    @Operation(summary = "创建源词条")
     public CatalogEntryApplicationService.EntryView createEntry(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @Valid @RequestBody CreateEntryBody body) {
         var actorId = actors.resolve(principal);
@@ -266,20 +281,21 @@ public class ApiController {
     }
 
     @GetMapping("/projects/{projectId}/catalog/entries")
+    @Operation(summary = "搜索源词条")
     public CatalogEntryApplicationService.EntryPage searchEntries(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @RequestParam long namespaceId,
             @RequestParam(required = false) String keyword,
-            @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "50") int pageSize) {
+            @Parameter(description = "从 1 开始的页码") @RequestParam(defaultValue = "1") int page,
+            @Parameter(description = "每页条数，最大 100") @RequestParam(defaultValue = "50") int pageSize) {
         return catalog.search(new CatalogEntryApplicationService.SearchEntries(
                 actors.resolve(principal), projectId, namespaceId, keyword, page, pageSize));
     }
 
     @PutMapping("/projects/{projectId}/catalog/entries/{entryId}/source")
     public CatalogEntryApplicationService.EntryView changeSource(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @PathVariable long entryId,
             @Valid @RequestBody ChangeSourceBody body) {
@@ -290,7 +306,7 @@ public class ApiController {
 
     @GetMapping("/projects/{projectId}/catalog/entries/{entryId}/history")
     public java.util.List<CatalogEntryApplicationService.RevisionView> history(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @PathVariable long entryId) {
         return catalog.history(new CatalogEntryApplicationService.ReadHistory(
@@ -299,12 +315,12 @@ public class ApiController {
 
     @GetMapping("/projects/{projectId}/glossary")
     public CatalogEntryApplicationService.TermPage glossary(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @RequestParam String sourceLocale,
             @RequestParam String targetLocale,
-            @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "50") int pageSize) {
+            @Parameter(description = "从 1 开始的页码") @RequestParam(defaultValue = "1") int page,
+            @Parameter(description = "每页条数，最大 100") @RequestParam(defaultValue = "50") int pageSize) {
         return catalog.listTerms(new CatalogEntryApplicationService.ReadTerms(
                 actors.resolve(principal), projectId, sourceLocale, targetLocale, page, pageSize));
     }
@@ -312,7 +328,7 @@ public class ApiController {
     @PostMapping("/projects/{projectId}/glossary")
     @ResponseStatus(HttpStatus.CREATED)
     public CatalogEntryApplicationService.TermView addGlossaryTerm(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @Valid @RequestBody AddGlossaryTermBody body) {
         return catalog.addTerm(new CatalogEntryApplicationService.AddTerm(
@@ -322,7 +338,7 @@ public class ApiController {
 
     @DeleteMapping("/projects/{projectId}/glossary/{termId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void archiveGlossaryTerm(@AuthenticationPrincipal Jwt principal,
+    public void archiveGlossaryTerm(@Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
                                     @PathVariable long projectId,
                                     @PathVariable long termId) {
         catalog.archiveTerm(new CatalogEntryApplicationService.ArchiveTerm(
@@ -331,7 +347,7 @@ public class ApiController {
 
     @DeleteMapping("/projects/{projectId}/catalog/entries/{entryId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void archiveEntry(@AuthenticationPrincipal Jwt principal,
+    public void archiveEntry(@Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
                              @PathVariable long projectId,
                              @PathVariable long entryId) {
         catalog.archive(new CatalogEntryApplicationService.ArchiveEntry(
@@ -340,7 +356,7 @@ public class ApiController {
 
     @PutMapping("/projects/{projectId}/catalog/entries/{entryId}/organization")
     public CatalogEntryApplicationService.EntryView reorganizeEntry(
-            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
             @PathVariable long entryId, @Valid @RequestBody ReorganizeEntryBody body) {
         return catalog.reorganize(new CatalogEntryApplicationService.ReorganizeEntry(
                 actors.resolve(principal), projectId, entryId, body.expectedVersion(),
@@ -349,7 +365,7 @@ public class ApiController {
 
     @GetMapping("/projects/{projectId}/catalog/entries/{entryId}/translations/{locale}")
     public TranslationApplicationService.TranslationView translation(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @PathVariable long entryId,
             @PathVariable String locale) {
@@ -358,15 +374,17 @@ public class ApiController {
     }
 
     @GetMapping("/projects/{projectId}/translations")
+    @Operation(summary = "分页查询翻译工作台")
     public TranslationApplicationService.WorkspacePage translationWorkspace(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @RequestParam long namespaceId,
             @RequestParam String locale,
+            @Parameter(description = "状态过滤：all、untranslated、draft、in-review、changes-requested、needs-review、reviewed")
             @RequestParam(defaultValue = "all") String status,
             @RequestParam(required = false) String keyword,
-            @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "50") int pageSize) {
+            @Parameter(description = "从 1 开始的页码") @RequestParam(defaultValue = "1") int page,
+            @Parameter(description = "每页条数，最大 100") @RequestParam(defaultValue = "50") int pageSize) {
         return translations.searchWorkspace(new TranslationApplicationService.SearchWorkspace(
                 actors.resolve(principal), projectId, namespaceId, locale, status,
                 keyword, page, pageSize));
@@ -374,7 +392,7 @@ public class ApiController {
 
     @GetMapping("/projects/{projectId}/catalog/entries/{entryId}/translations/{locale}/quality")
     public java.util.List<TranslationApplicationService.QualityIssue> translationQuality(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @PathVariable long entryId,
             @PathVariable String locale) {
@@ -383,7 +401,7 @@ public class ApiController {
 
     @GetMapping("/projects/{projectId}/catalog/entries/{entryId}/translations/{locale}/suggestions")
     public TranslationApplicationService.Suggestions translationSuggestions(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @PathVariable long entryId,
             @PathVariable String locale) {
@@ -391,8 +409,9 @@ public class ApiController {
     }
 
     @PutMapping("/projects/{projectId}/catalog/entries/{entryId}/translations/{locale}")
+    @Operation(summary = "保存或修订译文", description = "必须提交 expectedVersion 和 basedOnSourceRevision；版本冲突返回 409。")
     public TranslationApplicationService.TranslationView saveTranslation(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @PathVariable long entryId,
             @PathVariable String locale,
@@ -403,8 +422,9 @@ public class ApiController {
     }
 
     @PostMapping("/projects/{projectId}/catalog/entries/{entryId}/translations/{locale}/submit")
+    @Operation(summary = "提交译文审核")
     public TranslationApplicationService.TranslationView submitTranslation(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @PathVariable long entryId,
             @PathVariable String locale,
@@ -414,8 +434,9 @@ public class ApiController {
     }
 
     @PostMapping("/projects/{projectId}/catalog/entries/{entryId}/translations/{locale}/review")
+    @Operation(summary = "通过或退回译文", description = "REQUEST_CHANGES 必须提供退回原因；决定绑定精确译文版本。")
     public TranslationApplicationService.TranslationView reviewTranslation(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @PathVariable long entryId,
             @PathVariable String locale,
@@ -427,8 +448,9 @@ public class ApiController {
 
     @PostMapping("/projects/{projectId}/releases")
     @ResponseStatus(HttpStatus.ACCEPTED)
+    @Operation(summary = "创建异步发布任务", description = "按语言和格式执行发布门禁、构建不可变快照。任务返回 202，使用任务查询接口跟踪。")
     public ReleaseApplicationService.ReleaseJobView requestRelease(
-            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody PublishReleaseBody body) {
         return releases.requestPublish(new ReleaseApplicationService.PublishRelease(
@@ -436,29 +458,33 @@ public class ApiController {
     }
 
     @GetMapping("/projects/{projectId}/releases/jobs/{jobId}")
+    @Operation(summary = "查询发布任务")
     public ReleaseApplicationService.ReleaseJobView releaseJob(
-            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
             @PathVariable long jobId) {
         return releases.getJob(actors.resolve(principal), projectId, jobId);
     }
 
     @GetMapping("/projects/{projectId}/releases/jobs")
+    @Operation(summary = "查询最近发布任务")
     public java.util.List<ReleaseApplicationService.ReleaseJobView> releaseJobs(
-            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
             @RequestParam(required = false) String locale) {
         return releases.listJobs(actors.resolve(principal), projectId, locale);
     }
 
     @PostMapping("/projects/{projectId}/releases/jobs/{jobId}/retry")
+    @Operation(summary = "重试失败的发布任务")
     public ReleaseApplicationService.ReleaseJobView retryReleaseJob(
-            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
             @PathVariable long jobId) {
         return releases.retryJob(actors.resolve(principal), projectId, jobId);
     }
 
     @GetMapping("/projects/{projectId}/releases")
+    @Operation(summary = "查看发布版本历史")
     public java.util.List<ReleaseApplicationService.ReleaseSummary> releaseHistory(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @RequestParam(required = false) String locale,
             @RequestParam(required = false) String format) {
@@ -467,15 +493,16 @@ public class ApiController {
 
     @GetMapping("/projects/{projectId}/releases/{releaseId}")
     public ReleaseApplicationService.ReleaseSummary release(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @PathVariable long releaseId) {
         return ReleaseApplicationService.summary(releases.get(actors.resolve(principal), projectId, releaseId));
     }
 
     @GetMapping("/projects/{projectId}/releases/{releaseId}/content")
+    @Operation(summary = "下载已发布文件")
     public ResponseEntity<String> releaseContent(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @PathVariable long releaseId) {
         var actorId = actors.resolve(principal);
@@ -492,15 +519,16 @@ public class ApiController {
 
     @PostMapping("/projects/{projectId}/releases/{releaseId}/rollback")
     public ReleaseApplicationService.ReleaseSummary rollbackRelease(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @PathVariable long releaseId) {
         return ReleaseApplicationService.summary(releases.rollback(actors.resolve(principal), projectId, releaseId));
     }
 
     @PostMapping("/projects/{projectId}/imports/previews")
+    @Operation(summary = "预览 JSON 导入", description = "请求需带 Idempotency-Key；解析并返回差异预览，不立即修改项目数据。")
     public ImportApplicationService.ImportJobView createImportPreview(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody ImportApplicationService.PreviewBody body) {
@@ -511,15 +539,16 @@ public class ApiController {
 
     @GetMapping("/projects/{projectId}/imports/{jobId}")
     public ImportApplicationService.ImportJobView importJob(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @PathVariable long jobId) {
         return imports.get(actors.resolve(principal), projectId, jobId);
     }
 
     @PostMapping("/projects/{projectId}/imports/{jobId}/apply")
+    @Operation(summary = "确认并排队导入")
     public ResponseEntity<ImportApplicationService.ImportJobView> applyImport(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @PathVariable long jobId,
             @Valid @RequestBody ImportApplicationService.ApplyBody body) {
@@ -529,8 +558,9 @@ public class ApiController {
     }
 
     @PostMapping("/projects/{projectId}/imports/{jobId}/retry")
+    @Operation(summary = "重试失败的导入任务")
     public ResponseEntity<ImportApplicationService.ImportJobView> retryImport(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @PathVariable long jobId,
             @Valid @RequestBody ImportApplicationService.ApplyBody body) {
@@ -540,29 +570,33 @@ public class ApiController {
     }
 
     @PostMapping("/project-migrations/previews")
+    @Operation(summary = "预览本地项目迁移包", description = "校验 yandu-project-migration v1 JSON 包并返回冲突预览；此操作不创建项目数据。")
     public ProjectMigrationApplicationService.MigrationView previewProjectMigration(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @Valid @RequestBody ProjectMigrationBody body) {
         return migrations.preview(actors.resolve(principal), body.packageJson(), body.targetName());
     }
 
     @GetMapping("/project-migrations/{migrationId}")
+    @Operation(summary = "查询本地项目迁移任务")
     public ProjectMigrationApplicationService.MigrationView projectMigration(
-            @AuthenticationPrincipal Jwt principal, @PathVariable long migrationId) {
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long migrationId) {
         return migrations.get(actors.resolve(principal), migrationId);
     }
 
     @PostMapping("/project-migrations/{migrationId}/apply")
+    @Operation(summary = "应用本地项目迁移包", description = "异步创建项目并迁入词条和草稿译文，返回 202。")
     public ResponseEntity<ProjectMigrationApplicationService.MigrationView> applyProjectMigration(
-            @AuthenticationPrincipal Jwt principal, @PathVariable long migrationId,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long migrationId,
             @Valid @RequestBody ImportApplicationService.ApplyBody body) {
         return ResponseEntity.accepted().body(migrations.apply(
                 actors.resolve(principal), migrationId, body.previewHash()));
     }
 
     @PostMapping("/project-migrations/{migrationId}/retry")
+    @Operation(summary = "重试失败的本地项目迁移")
     public ResponseEntity<ProjectMigrationApplicationService.MigrationView> retryProjectMigration(
-            @AuthenticationPrincipal Jwt principal, @PathVariable long migrationId,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal, @PathVariable long migrationId,
             @Valid @RequestBody ImportApplicationService.ApplyBody body) {
         return ResponseEntity.accepted().body(migrations.apply(
                 actors.resolve(principal), migrationId, body.previewHash()));
@@ -570,10 +604,10 @@ public class ApiController {
 
     @GetMapping("/projects/{projectId}/audit-log")
     public AuditLog.AuditPage auditHistory(
-            @AuthenticationPrincipal Jwt principal,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
-            @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "50") int pageSize) {
+            @Parameter(description = "从 1 开始的页码") @RequestParam(defaultValue = "1") int page,
+            @Parameter(description = "每页条数，最大 100") @RequestParam(defaultValue = "50") int pageSize) {
         workspace.getProject(actors.resolve(principal), projectId);
         return audit.page(projectId, page, pageSize);
     }
@@ -588,17 +622,19 @@ public class ApiController {
         throw new IllegalArgumentException(field + " must be a positive decimal string");
     }
 
-    public record CreateProjectBody(@NotBlank @Size(max = 120) String name,
+    public record CreateProjectBody(@Schema(description = "项目名称", example = "Storefront") @NotBlank @Size(max = 120) String name,
                                     @NotBlank @Size(max = 35) String sourceLocale,
                                     @Size(max = 2000) String description,
+                                    @Schema(description = "可选目标语言；未传时由服务端配置默认语言")
                                     java.util.List<@NotBlank @Size(max = 35) String> targetLocales) { }
 
     public record TargetLocaleBody(@NotBlank @Size(max = 35) String locale) { }
 
     public record CreateNamespaceBody(@NotBlank @Size(max = 120) String name) { }
 
-    public record CreateEntryBody(@NotBlank String namespaceId,
+    public record CreateEntryBody(@Schema(description = "命名空间数字 ID，十进制字符串") @NotBlank String namespaceId,
                                   @NotBlank @Size(max = 200) String key,
+                                  @Schema(description = "源文案，最多 16000 个字符")
                                   @NotBlank @Size(max = 16000) String sourceText) { }
 
     public record AddGlossaryTermBody(@NotBlank @Size(max = 35) String sourceLocale,
@@ -613,23 +649,28 @@ public class ApiController {
     public record ReorganizeEntryBody(long expectedVersion, @NotBlank String namespaceId,
                                       @NotBlank @Size(max = 200) String key) { }
 
-    public record SaveTranslationBody(long expectedVersion, long basedOnSourceRevision,
+    public record SaveTranslationBody(@Schema(description = "客户端最后读取到的译文版本") long expectedVersion,
+                                      @Schema(description = "译文依据的源文修订版本") long basedOnSourceRevision,
                                       @jakarta.validation.constraints.NotNull @Size(max = 16000) String value) { }
 
     public record SubmitTranslationBody(long expectedVersion) { }
 
-    public record ReviewTranslationBody(long expectedVersion,
+    public record ReviewTranslationBody(@Schema(description = "要审核的译文版本") long expectedVersion,
                                         @jakarta.validation.constraints.NotNull TranslationApplicationService.ReviewDecision decision,
-                                        @Size(max = 2000) String reason) { }
+                                        @Schema(description = "退回修改时必填") @Size(max = 2000) String reason) { }
 
-    public record PublishReleaseBody(@NotBlank @Size(max = 35) String locale,
+    public record PublishReleaseBody(@Schema(description = "目标语言标签", example = "en-US")
+                                     @NotBlank @Size(max = 35) String locale,
                                      @jakarta.validation.constraints.Pattern(
-                                             regexp = "json-flat-v1|java-properties-v1") String format) { }
+                                             regexp = "json-flat-v1|java-properties-v1")
+                                     @Schema(description = "导出格式", allowableValues = {"json-flat-v1", "java-properties-v1"})
+                                     String format) { }
 
     public record PreviewBody(long namespaceId, @NotBlank @Size(max = 35) String locale,
                               @jakarta.validation.constraints.NotNull String json) { }
 
-    public record ProjectMigrationBody(@NotBlank @Size(max = 5_500_000) String packageJson,
+    public record ProjectMigrationBody(@Schema(description = "UTF-8 JSON 包，format=yandu-project-migration、schemaVersion=1；最多 5 MiB")
+                                       @NotBlank @Size(max = 5_500_000) String packageJson,
                                        @Size(max = 120) String targetName) { }
 
     public record ApplyBody(@jakarta.validation.constraints.Pattern(regexp = "[a-f0-9]{64}")

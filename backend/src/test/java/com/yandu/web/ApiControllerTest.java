@@ -27,7 +27,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 @WebMvcTest(ApiController.class)
-@Import({SecurityConfiguration.class, ApiExceptionHandler.class})
+@Import({SecurityConfiguration.class, ApiExceptionHandler.class, OpenApiConfiguration.class,
+        org.springdoc.core.properties.SpringDocConfigProperties.class,
+        org.springdoc.core.configuration.SpringDocConfiguration.class,
+        org.springdoc.webmvc.core.configuration.SpringDocWebMvcConfiguration.class})
 @TestPropertySource(properties = {
         "spring.security.oauth2.resourceserver.jwt.issuer-uri=https://issuer.example.test",
         "spring.security.oauth2.resourceserver.jwt.audiences=yandu-api",
@@ -172,5 +175,22 @@ class ApiControllerTest {
                 .andExpect(jsonPath("$[0].error").value("发布门禁失败"));
 
         verify(releases).listJobs(41L, 10L, "en-US");
+    }
+
+    @Test
+    void versionedOpenApiDocumentsTheMainWorkflowAndSecurityContract() throws Exception {
+        mvc.perform(get("/api/v1/openapi")
+                        .with(jwt().jwt(token -> token.subject("external-subject"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.openapi").value("3.1.0"))
+                .andExpect(jsonPath("$.components.securitySchemes.bearerAuth.scheme").value("bearer"))
+                .andExpect(jsonPath("$.paths['/api/v1/projects/{projectId}/translations'].get.parameters[0].name").value("projectId"))
+                .andExpect(jsonPath("$.paths['/api/v1/projects/{projectId}/translations'].get.parameters[0].schema.type").value("string"))
+                .andExpect(jsonPath("$.paths['/api/v1/projects/{projectId}/machine-translation-jobs'].post").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/projects/{projectId}/machine-translation-jobs'].post.parameters[?(@.name == 'Idempotency-Key')]").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/projects/{projectId}/machine-translation-jobs'].post.responses['503']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/projects/{projectId}/releases'].post.responses['202']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/project-migrations/previews'].post").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/projects/{projectId}/catalog/entries/{entryId}/translations/{locale}/review'].post").exists());
     }
 }

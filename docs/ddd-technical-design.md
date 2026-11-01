@@ -26,7 +26,7 @@
 | 结构 | DDD 分层模块化单体；Spring Modulith 用于模块边界验证和文档生成 | 以一个可部署应用和 MySQL 8.0 启动；不先拆微服务。 |
 | HTTP 安全 | Spring Security；OIDC 身份认证，领域应用服务执行项目成员/资源授权 | OIDC 提供者和 token 校验参数由部署环境配置。URL 级授权不能代替资源级授权。 |
 | 数据库 | MySQL 8.0 专用实现 | 用户确认直接使用 MySQL 8.0，不要求数据库切换或跨数据库迁移。Repository 端口服务于 DDD 模块边界和用例，不代表承诺数据库可替换。对象存储仅承载大文件/生成包。 |
-| API | `/api/v1` REST/JSON + OpenAPI | 同步命令用于小型事务；大文件解析、批量导入和资源构建使用异步任务。 |
+| API | `/api/v1` REST/JSON + OpenAPI 3.1 at `/api/v1/openapi` | 同步命令用于小型事务；大文件解析、批量导入和资源构建使用异步任务。 |
 | 数据访问 | MyBatis-Plus | Mapper 只存在于 infrastructure；领域聚合不继承 Active Record，不暴露 ORM 懒加载。复杂列表可使用专用查询 Mapper/投影。 |
 | 主键 | 数字 `BIGINT`，应用生成，API 将 ID 编码为十进制字符串 | 用户明确不采用 UUID；当前实现使用 Snowflake，避免依赖数据库自增。上线多实例前固定并验证 worker/node ID 配置。 |
 | 迁移 | Flyway 版本化迁移 | Flyway 脚本以 MySQL 8.0 为唯一目标，按数据库演进维护版本；不提供第二方言或跨库迁移层。 |
@@ -323,7 +323,9 @@ erDiagram
 
 ## 8. API 草案
 
-所有资源都从认证上下文确定组织范围；`organizationId` 可做路由上下文但必须与主体成员校验。列表默认 page size 50、最大 200；大列表使用稳定游标 `(updated_at,id)`。所有错误包含 `code`, `message`, `correlationId`, 可选 `details[]`，不回显内部 SQL/栈。
+所有资源访问都从认证上下文解析主体，并校验项目成员和角色；本期不引入组织/租户范围。设计草案建议列表默认 page size 50、最大 200；大列表使用稳定游标 `(updated_at,id)`。错误不回显内部 SQL/栈。
+
+运行时契约由 Controller 注解生成，OpenAPI 3.1 JSON 位于受 OIDC 保护的 `/api/v1/openapi`。运行时错误体采用 RFC 9457 `ProblemDetail`（`application/problem+json`），冲突和质量门禁响应携带其具体扩展字段；分页默认值为 50，最大值按操作约定并记录在生成契约中。项目迁移接口接受 `ProjectMigrationBody.packageJson`，内容格式为 `yandu-project-migration`、版本 1 的 UTF-8 JSON 包。下表是设计草案，具体路由和运行时行为以版本化 OpenAPI 与已实现 Controller 为准。
 
 | 方法/路径 | 用例 | 并发/幂等 |
 | --- | --- | --- |
