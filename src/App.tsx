@@ -52,6 +52,9 @@ import {
   backendEnabled,
   createRemoteProject,
   downloadRemoteRelease,
+  downloadRemoteReleaseSnapshot,
+  listRemoteReleases,
+  rollbackRemoteRelease,
   getCurrentActorId,
   getProjectRole,
   initializeBackendSession,
@@ -90,7 +93,7 @@ import {
   getMachineTranslationJobItems,
   retryMachineTranslationJob,
 } from './backend'
-import type { MachineTranslationJob, MachineTranslationJobItems, ProjectMigration, RemoteNamespace } from './backend'
+import type { MachineTranslationJob, MachineTranslationJobItems, ProjectMigration, RemoteNamespace, RemoteRelease } from './backend'
 
 function readInitial() {
   try {
@@ -338,7 +341,7 @@ export default function App() {
   const [namespaces, setNamespaces] = useState<RemoteNamespace[]>([])
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('all')
-  const [modal, setModal] = useState<'project' | 'entry' | 'language' | 'import' | 'members' | 'glossary' | 'migration' | 'machine-translation' | null>(null)
+  const [modal, setModal] = useState<'project' | 'entry' | 'language' | 'import' | 'members' | 'glossary' | 'migration' | 'machine-translation' | 'releases' | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [sourceEditingId, setSourceEditingId] = useState<string | null>(null)
   const [sourceText, setSourceText] = useState('')
@@ -371,6 +374,8 @@ export default function App() {
   const [machineTranslationItemsPage, setMachineTranslationItemsPage] = useState(1)
   const [machineTranslationRequestKey, setMachineTranslationRequestKey] = useState('')
   const [machineTranslationCreating, setMachineTranslationCreating] = useState(false)
+  const [releaseHistory, setReleaseHistory] = useState<RemoteRelease[]>([])
+  const [releaseHistoryLoading, setReleaseHistoryLoading] = useState(false)
   const machineJobStatusById = useRef(new Map<string, string>())
   const [glossaryTerms, setGlossaryTerms] = useState<Awaited<ReturnType<typeof listRemoteGlossary>>['items']>([])
   const [glossaryLoading, setGlossaryLoading] = useState(false)
@@ -448,6 +453,18 @@ export default function App() {
     }).finally(() => { if (active) setMembersLoading(false) })
     return () => { active = false }
   }, [authStatus, modal, projectId])
+
+  useEffect(() => {
+    if (!backendEnabled || authStatus !== 'ready' || modal !== 'releases' || !projectId) return
+    let active = true
+    setReleaseHistoryLoading(true)
+    void listRemoteReleases(projectId, locale).then((items) => {
+      if (active) setReleaseHistory(items)
+    }).catch((error: unknown) => {
+      if (active) notify(error instanceof Error ? error.message : '无法读取发布历史。', true)
+    }).finally(() => { if (active) setReleaseHistoryLoading(false) })
+    return () => { active = false }
+  }, [authStatus, modal, projectId, locale])
 
   useEffect(() => {
     if (!backendEnabled || authStatus !== 'ready' || modal !== 'machine-translation' || !projectId) return
@@ -1085,12 +1102,17 @@ export default function App() {
                     </button>
                     <button className="button plain" onClick={() => download('json-flat-v1')}>
                       <ArrowDownToLine size={16} />
-                      导出 JSON
+                      {backendEnabled ? '发布并导出 JSON' : '导出 JSON'}
                     </button>
                     <button className="button plain" onClick={() => download('java-properties-v1')}>
                       <ArrowDownToLine size={16} />
-                      导出 Properties
+                      {backendEnabled ? '发布并导出 Properties' : '导出 Properties'}
                     </button>
+                    {backendEnabled && (
+                      <button className="button plain" onClick={() => openModal('releases')}>
+                        <FileText size={16} />发布历史
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="table-scroll">
@@ -1586,6 +1608,49 @@ export default function App() {
               </div>
             </section>
           )}
+        </Modal>
+      )}
+      {modal === 'releases' && project && backendEnabled && (
+        <Modal title={`发布历史 · ${languageName(locale)}`} onClose={() => setModal(null)} wide>
+          <p className="modal-copy">每个发布版本都是不可变快照。可下载历史文件，或将旧版本内容作为新版本回滚。</p>
+          {releaseHistoryLoading ? <p>正在读取发布历史…</p> : releaseHistory.length === 0 ? (
+            <div className="empty-state"><FileText size={30} /><p>当前语言还没有发布版本。</p></div>
+          ) : (
+            <ul className="release-list">
+              {releaseHistory.map((release) => (
+                <li key={release.id}>
+                  <div className="release-details">
+                    <strong>v{release.version} · {release.format === 'java-properties-v1' ? 'Java Properties' : 'JSON'}</strong>
+                    <span>{release.entryCount} 条 · {new Date(release.publishedAt).toLocaleString()} · 发布者 {release.publishedBy}</span>
+                    <code title={release.checksumSha256}>SHA-256 {release.checksumSha256}</code>
+                    {release.rollbackOfReleaseId && <small>由版本 ID {release.rollbackOfReleaseId} 回滚创建</small>}
+                  </div>
+                  <div className="release-actions">
+                    <button className="button plain" onClick={async () => {
+                      try {
+                        const { content, extension } = await downloadRemoteReleaseSnapshot(project.id, release)
+                        const link = document.createElement('a')
+                        link.href = URL.createObjectURL(new Blob([content], {
+                          type: extension === 'properties' ? 'text/plain' : 'application/json',
+                        }))
+                        link.download = `yandu-${project.id}-${release.locale}-v${release.version}.${extension}`
+                        link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000)
+                      } catch (error) { notify(error instanceof Error ? error.message : '历史版本下载失败。', true) }
+                    }}><ArrowDownToLine size={14} />下载</button>
+                    {canManageProject && projectActive && <button className="button plain" onClick={async () => {
+                      if (!window.confirm(`将 v${release.version} 的内容回滚为新的发布版本？`)) return
+                      try {
+                        await rollbackRemoteRelease(project.id, release.id)
+                        setReleaseHistory(await listRemoteReleases(project.id, locale))
+                        notify(`已从 v${release.version} 创建新的回滚版本。`)
+                      } catch (error) { notify(error instanceof Error ? error.message : '回滚失败。', true) }
+                    }}>回滚为新版本</button>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="modal-actions"><button className="button secondary" onClick={() => setModal(null)}>关闭</button></div>
         </Modal>
       )}
       {modal === 'glossary' && project && backendEnabled && (

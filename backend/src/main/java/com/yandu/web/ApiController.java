@@ -427,29 +427,29 @@ public class ApiController {
 
     @PostMapping("/projects/{projectId}/releases")
     @ResponseStatus(HttpStatus.CREATED)
-    public ReleaseApplicationService.ReleaseView publishRelease(
+    public ReleaseApplicationService.ReleaseSummary publishRelease(
             @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @Valid @RequestBody PublishReleaseBody body) {
-        return releases.publish(new ReleaseApplicationService.PublishRelease(
-                actors.resolve(principal), projectId, body.locale(), body.format()));
+        return ReleaseApplicationService.summary(releases.publish(new ReleaseApplicationService.PublishRelease(
+                actors.resolve(principal), projectId, body.locale(), body.format())));
     }
 
     @GetMapping("/projects/{projectId}/releases")
-    public java.util.List<ReleaseApplicationService.ReleaseView> releaseHistory(
+    public java.util.List<ReleaseApplicationService.ReleaseSummary> releaseHistory(
             @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @RequestParam(required = false) String locale,
             @RequestParam(required = false) String format) {
-        return releases.history(actors.resolve(principal), projectId, locale, format);
+        return releases.historySummaries(actors.resolve(principal), projectId, locale, format);
     }
 
     @GetMapping("/projects/{projectId}/releases/{releaseId}")
-    public ReleaseApplicationService.ReleaseView release(
+    public ReleaseApplicationService.ReleaseSummary release(
             @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @PathVariable long releaseId) {
-        return releases.get(actors.resolve(principal), projectId, releaseId);
+        return ReleaseApplicationService.summary(releases.get(actors.resolve(principal), projectId, releaseId));
     }
 
     @GetMapping("/projects/{projectId}/releases/{releaseId}/content")
@@ -470,11 +470,11 @@ public class ApiController {
     }
 
     @PostMapping("/projects/{projectId}/releases/{releaseId}/rollback")
-    public ReleaseApplicationService.ReleaseView rollbackRelease(
+    public ReleaseApplicationService.ReleaseSummary rollbackRelease(
             @AuthenticationPrincipal Jwt principal,
             @PathVariable long projectId,
             @PathVariable long releaseId) {
-        return releases.rollback(actors.resolve(principal), projectId, releaseId);
+        return ReleaseApplicationService.summary(releases.rollback(actors.resolve(principal), projectId, releaseId));
     }
 
     @PostMapping("/projects/{projectId}/imports/previews")

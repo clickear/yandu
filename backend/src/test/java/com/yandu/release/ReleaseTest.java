@@ -130,6 +130,24 @@ class ReleaseTest {
         assertEquals(checksum, rollback.checksumSha256());
     }
 
+    @Test
+    void releaseHistoryReturnsVerifiedSnapshotMetadata() {
+        var content = "{\"home.title\":\"Bonjour\"}\n";
+        var checksum = java.util.HexFormat.of().formatHex(sha256(content));
+        given(repository.list(10L, "en-US", null, 100)).willReturn(List.of(
+                new ReleaseRepository.ReleaseSnapshot(200L, 10L, "en-US",
+                        ReleaseApplicationService.JSON_FLAT, 2, null, content, "{}", checksum,
+                        41L, Instant.parse("2025-12-01T00:00:00Z"))));
+
+        var history = service.historySummaries(41L, 10L, "en-US", null);
+
+        assertEquals(1, history.size());
+        assertEquals("200", history.getFirst().id());
+        assertEquals(2, history.getFirst().version());
+        assertEquals(checksum, history.getFirst().checksumSha256());
+        assertEquals(1, history.getFirst().entryCount());
+    }
+
     private static byte[] sha256(String value) {
         try {
             return java.security.MessageDigest.getInstance("SHA-256")

@@ -118,6 +118,19 @@ public class ReleaseApplicationService {
     }
 
     @Transactional(readOnly = true)
+    public List<ReleaseSummary> historySummaries(long actorId, long projectId, String locale, String format) {
+        // Keep large immutable artifact bodies out of release-history responses.
+        return history(actorId, projectId, locale, format).stream()
+                .map(ReleaseApplicationService::summary).toList();
+    }
+
+    public static ReleaseSummary summary(ReleaseView release) {
+        return new ReleaseSummary(release.id(), release.projectId(), release.locale(), release.format(),
+                release.version(), release.rollbackOfReleaseId(), release.checksumSha256(),
+                release.entryCount(), release.publishedBy(), release.publishedAt());
+    }
+
+    @Transactional(readOnly = true)
     public ReleaseView get(long actorId, long projectId, long releaseId) {
         access.requireCanReadProject(actorId, projectId);
         var snapshot = releases.find(projectId, releaseId)
@@ -264,6 +277,10 @@ public class ReleaseApplicationService {
                               String rollbackOfReleaseId,
                               String content, String manifestJson, String checksumSha256, int entryCount,
                               String publishedBy, java.time.Instant publishedAt) { }
+
+    public record ReleaseSummary(String id, String projectId, String locale, String format, long version,
+                                 String rollbackOfReleaseId, String checksumSha256, int entryCount,
+                                 String publishedBy, java.time.Instant publishedAt) { }
 
     public record ReleaseManifest(String format, String locale, List<ManifestEntry> entries,
                                   List<String> passedQualityRules) { }

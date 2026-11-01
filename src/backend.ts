@@ -364,16 +364,38 @@ export function getProjectMigration(migrationId: string) {
   return request<ProjectMigration>(`/project-migrations/${migrationId}`)
 }
 
-export async function downloadRemoteRelease(projectId: string, locale: string, format: 'json-flat-v1' | 'java-properties-v1') {
-  const release = await request<{ id: string }>(`/projects/${projectId}/releases`, {
-    method: 'POST', body: JSON.stringify({ locale, format }),
-  })
+export type RemoteRelease = {
+  id: string; projectId: string; locale: string; format: 'json-flat-v1' | 'java-properties-v1'
+  version: number; rollbackOfReleaseId: string | null; checksumSha256: string; entryCount: number
+  publishedBy: string; publishedAt: string
+}
+
+export function listRemoteReleases(projectId: string, locale: string) {
+  return request<RemoteRelease[]>(`/projects/${projectId}/releases?locale=${encodeURIComponent(locale)}`)
+}
+
+export function rollbackRemoteRelease(projectId: string, releaseId: string) {
+  return request<RemoteRelease>(`/projects/${projectId}/releases/${releaseId}/rollback`, { method: 'POST' })
+}
+
+async function fetchRemoteReleaseContent(projectId: string, releaseId: string, format: string) {
   const user = await userManager?.getUser()
-  const response = await fetch(`${apiUrl}/api/v1/projects/${projectId}/releases/${release.id}/content`, {
+  const response = await fetch(`${apiUrl}/api/v1/projects/${projectId}/releases/${releaseId}/content`, {
     headers: { Authorization: `Bearer ${user?.access_token}` },
   })
   if (!response.ok) throw new Error(`发布文件下载失败（${response.status}）。`)
   return { content: await response.text(), extension: format === 'java-properties-v1' ? 'properties' : 'json' }
+}
+
+export async function downloadRemoteRelease(projectId: string, locale: string, format: 'json-flat-v1' | 'java-properties-v1') {
+  const release = await request<RemoteRelease>(`/projects/${projectId}/releases`, {
+    method: 'POST', body: JSON.stringify({ locale, format }),
+  })
+  return { release, ...(await fetchRemoteReleaseContent(projectId, release.id, format)) }
+}
+
+export function downloadRemoteReleaseSnapshot(projectId: string, release: RemoteRelease) {
+  return fetchRemoteReleaseContent(projectId, release.id, release.format)
 }
 
 export function loadMemorySuggestions(projectId: string, entryId: string, locale: string) {

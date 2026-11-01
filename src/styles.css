@@ -1615,6 +1615,41 @@ th > span:not(.sr-only) {
   list-style: none;
   border-top: 1px solid #eee7f3;
 }
+.release-list {
+  max-height: 55vh;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid #eee7f3;
+}
+.release-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 4px;
+  border-bottom: 1px solid #eee7f3;
+}
+.release-details {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+.release-details span,
+.release-details small,
+.release-details code {
+  color: #776b83;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.release-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
 .glossary-list li {
   display: flex;
   justify-content: space-between;

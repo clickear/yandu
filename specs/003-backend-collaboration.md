@@ -43,7 +43,7 @@ Spring Boot、Spring Modulith 与 Spring Security 的选择依据及其职责边
 
 ## 当前后端实现范围
 
-当前代码建立了通用 OIDC JWT 身份解析、项目成员角色授权、Workspace、Catalog、Translation、Import、Release、AuditLog 模块及 `/api/v1` REST API。前端支持显式 API 模式、OIDC 登录、项目与成员管理、服务端译文工作流、源文修改/历史/归档、术语与翻译记忆建议、JSON 差异预览与异步导入、JSON/Java Properties 发布下载；未配置服务端时保留本地原型。已加入版本 1 的本地项目迁移包预览、确认、幂等异步分批迁移、进度和本地/服务端词条 ID 映射查询，以及迁移失败后同包重试；迁移期间项目保持隐藏。服务端提供公开 liveness/readiness 探针，readiness 检查 MySQL 连通性且不公开组件详情。真实 MySQL 8 集成迁移和 UI→OIDC→API→MySQL 端到端链路尚未验证，正式故障恢复演练未完成。租户模式和 Outbox 本期不实现。
+当前代码建立了通用 OIDC JWT 身份解析、项目成员角色授权、Workspace、Catalog、Translation、Import、Release、AuditLog 模块及 `/api/v1` REST API。前端支持显式 API 模式、OIDC 登录、项目与成员管理、服务端译文工作流、源文修改/历史/归档、术语与翻译记忆建议、JSON 差异预览与异步导入、发布历史查询/下载/回滚以及 JSON/Java Properties 发布；发布历史校验和元数据不包含完整资源正文。未配置服务端时保留本地原型。已加入版本 1 的本地项目迁移包预览、确认、幂等异步分批迁移、进度和本地/服务端词条 ID 映射查询，以及迁移失败后同包重试；迁移期间项目保持隐藏。服务端提供公开 liveness/readiness 探针，readiness 检查 MySQL 连通性且不公开组件详情。真实 MySQL 8 集成迁移和 UI→OIDC→API→MySQL 端到端链路尚未验证，正式故障恢复演练未完成。租户模式和 Outbox 本期不实现。
 
 Workspace 生命周期切片已补齐：项目创建默认配置一个目标语言并接受描述；项目和目标语言可归档/恢复（至少一个活动目标语言），归档项目在成员列表可见且可读历史；成员角色可调整/移除/主动离开，Owner 可转让给现有 Admin；Owner/Admin/Translator/Reviewer/Viewer 规则由 Project 聚合校验，项目归档与成员操作写审计。后端 37 项测试（含 Spring Modulith 边界检查）与前端生产构建通过；V6 MySQL 迁移尚未在 MySQL 8.0 实例执行。
 
