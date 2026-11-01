@@ -55,6 +55,7 @@ import {
   createRemoteProject,
   requestRemoteRelease,
   getRemoteReleaseJob,
+  listRemoteReleaseJobs,
   retryRemoteReleaseJob,
   downloadRemoteReleaseJobResult,
   downloadRemoteReleaseSnapshot,
@@ -161,6 +162,25 @@ function Modal({
       {children}
     </dialog>
   )
+}
+
+function downloadTextFile(content: string, filename: string, mediaType: string) {
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(new Blob([content], { type: mediaType }))
+  link.download = filename
+  link.click()
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000)
+}
+
+function clearReleaseRequestKeyForJob(job: RemoteReleaseJob) {
+  const tuple = `${job.projectId}:${job.locale}:${job.format}`
+  const key = `yandu.release-request.v1:${tuple}`
+  try {
+    if (sessionStorage.getItem(`${key}:job`) !== job.id) return false
+    sessionStorage.removeItem(key)
+    sessionStorage.removeItem(`${key}:job`)
+    return true
+  } catch { return false }
 }
 
 function TranslationEditor({
@@ -415,10 +435,13 @@ export default function App() {
   const [machineTranslationCreating, setMachineTranslationCreating] = useState(false)
   const [releaseHistory, setReleaseHistory] = useState<RemoteRelease[]>([])
   const [releaseHistoryLoading, setReleaseHistoryLoading] = useState(false)
+  const [releaseJobs, setReleaseJobs] = useState<RemoteReleaseJob[]>([])
+  const [releaseJobsLoading, setReleaseJobsLoading] = useState(false)
   const [releaseJob, setReleaseJob] = useState<RemoteReleaseJob | null>(null)
   const [releaseJobError, setReleaseJobError] = useState('')
   const releaseRequestKeys = useRef(new Map<string, string>())
   const downloadedReleaseJobs = useRef(new Set<string>())
+  const releaseJobStatuses = useRef(new Map<string, string>())
   const machineJobStatusById = useRef(new Map<string, string>())
   const [glossaryTerms, setGlossaryTerms] = useState<Awaited<ReturnType<typeof listRemoteGlossary>>['items']>([])
   const [glossaryLoading, setGlossaryLoading] = useState(false)
@@ -428,6 +451,9 @@ export default function App() {
   const [migrationPreview, setMigrationPreview] = useState<ProjectMigration | null>(null)
   const [migrationBusy, setMigrationBusy] = useState(false)
   const project = workspace.projects.find((p) => p.id === projectId)
+  const visibleReleaseJobs = releaseJobs.filter((job) => job.projectId === projectId && job.locale === locale)
+  if (releaseJob && releaseJob.projectId === projectId && releaseJob.locale === locale
+    && !visibleReleaseJobs.some((job) => job.id === releaseJob.id)) visibleReleaseJobs.unshift(releaseJob)
   const activeNamespaceId = namespaceId || project?.defaultNamespaceId || ''
   const editing = project?.entries.find((e) => e.id === editingId)
   const sourceEditing = project?.entries.find((e) => e.id === sourceEditingId)
@@ -501,12 +527,43 @@ export default function App() {
     if (!backendEnabled || authStatus !== 'ready' || modal !== 'releases' || !projectId) return
     let active = true
     setReleaseHistoryLoading(true)
+    setReleaseJobsLoading(true)
     void listRemoteReleases(projectId, locale).then((items) => {
       if (active) setReleaseHistory(items)
     }).catch((error: unknown) => {
       if (active) notify(error instanceof Error ? error.message : '无法读取发布历史。', true)
     }).finally(() => { if (active) setReleaseHistoryLoading(false) })
-    return () => { active = false }
+    const refreshJobs = async () => {
+      try {
+        const jobs = await listRemoteReleaseJobs(projectId, locale)
+        if (!active) return
+        setReleaseJobsLoading(false)
+        setReleaseJobError('')
+        setReleaseJobs(jobs)
+        setReleaseJob((current) => current
+          ? jobs.find((job) => job.id === current.id) ?? current : current)
+        for (const job of jobs) {
+          if (['COMPLETED', 'FAILED'].includes(job.status) && clearReleaseRequestKeyForJob(job)) {
+            releaseRequestKeys.current.delete(`${job.projectId}:${job.locale}:${job.format}`)
+          }
+          const previous = releaseJobStatuses.current.get(job.id)
+          if (job.status === 'COMPLETED' && previous !== 'COMPLETED') {
+            void listRemoteReleases(projectId, locale).then((items) => {
+              if (active) setReleaseHistory(items)
+            }).catch(() => { /* Keep the current history visible; the next open will reload it. */ })
+          }
+          releaseJobStatuses.current.set(job.id, job.status)
+        }
+      } catch (error) {
+        if (active) {
+          setReleaseJobsLoading(false)
+          setReleaseJobError(error instanceof Error ? error.message : '无法读取发布任务。')
+        }
+      }
+    }
+    void refreshJobs()
+    const timer = window.setInterval(() => { void refreshJobs() }, 2000)
+    return () => { active = false; window.clearInterval(timer) }
   }, [authStatus, modal, projectId, locale])
 
   useEffect(() => {
@@ -516,14 +573,10 @@ export default function App() {
       if (downloadedReleaseJobs.current.has(releaseJob.id)) return
       downloadedReleaseJobs.current.add(releaseJob.id)
       releaseRequestKeys.current.delete(`${releaseJob.projectId}:${releaseJob.locale}:${releaseJob.format}`)
+      clearReleaseRequestKeyForJob(releaseJob)
       void downloadRemoteReleaseJobResult(projectId, releaseJob).then(({ release, content, extension }) => {
-        const link = document.createElement('a')
-        link.href = URL.createObjectURL(new Blob([content], {
-          type: extension === 'properties' ? 'text/plain' : 'application/json',
-        }))
-        link.download = `yandu-${release.projectId}-${release.locale}-v${release.version}.${extension}`
-        link.click()
-        setTimeout(() => URL.revokeObjectURL(link.href), 1000)
+        downloadTextFile(content, `yandu-${release.projectId}-${release.locale}-v${release.version}.${extension}`,
+          extension === 'properties' ? 'text/plain' : 'application/json')
         setReleaseJobError('')
         setReleaseHistory((history) => [release, ...history.filter((item) => item.id !== release.id)])
         releaseRequestKeys.current.delete(`${release.projectId}:${release.locale}:${release.format}`)
@@ -536,7 +589,14 @@ export default function App() {
     let active = true
     const timer = window.setTimeout(() => {
       void getRemoteReleaseJob(projectId, releaseJob.id).then((job) => {
-        if (active) { setReleaseJob(job); setReleaseJobError('') }
+        if (active) {
+          setReleaseJob(job)
+          setReleaseJobError('')
+          if (['COMPLETED', 'FAILED'].includes(job.status)) {
+            clearReleaseRequestKeyForJob(job)
+            releaseRequestKeys.current.delete(`${job.projectId}:${job.locale}:${job.format}`)
+          }
+        }
       }).catch((error: unknown) => {
         if (active) {
           setReleaseJobError(error instanceof Error ? error.message : '发布任务状态查询失败。')
@@ -692,10 +752,22 @@ export default function App() {
     const extension = format === 'java-properties-v1' ? 'properties' : 'json'
     if (backendEnabled) {
       const requestKey = `${project.id}:${locale}:${format}`
-      const idempotencyKey = releaseRequestKeys.current.get(requestKey) ?? crypto.randomUUID()
+      let storedKey: string | null = null
+      try { storedKey = sessionStorage.getItem(`yandu.release-request.v1:${requestKey}`) } catch { /* Continue in memory. */ }
+      const idempotencyKey = releaseRequestKeys.current.get(requestKey) ?? storedKey ?? crypto.randomUUID()
       releaseRequestKeys.current.set(requestKey, idempotencyKey)
+      try {
+        sessionStorage.setItem(`yandu.release-request.v1:${requestKey}`, idempotencyKey)
+        sessionStorage.removeItem(`yandu.release-request.v1:${requestKey}:job`)
+      } catch { /* Continue in memory. */ }
       void requestRemoteRelease(project.id, locale, format, idempotencyKey).then((job) => {
+        try { sessionStorage.setItem(`yandu.release-request.v1:${requestKey}:job`, job.id) } catch { /* Continue in memory. */ }
         setReleaseJob(job)
+        setReleaseJobs((jobs) => [job, ...jobs.filter((item) => item.id !== job.id)])
+        if (['COMPLETED', 'FAILED'].includes(job.status)) {
+          releaseRequestKeys.current.delete(requestKey)
+          clearReleaseRequestKeyForJob(job)
+        }
         setReleaseJobError('')
         setModal('releases')
         notify(job.status === 'COMPLETED' ? '发布已完成，正在准备文件。' : '发布任务已提交，可在发布窗口查看进度。')
@@ -1702,42 +1774,49 @@ export default function App() {
       {modal === 'releases' && project && backendEnabled && (
         <Modal title={`发布历史 · ${languageName(locale)}`} onClose={() => setModal(null)} wide>
           <p className="modal-copy">每个发布版本都是不可变快照。可下载历史文件，或将旧版本内容作为新版本回滚。</p>
-          {releaseJob && releaseJob.projectId === project.id && releaseJob.locale === locale && (
-            <section className="release-job" aria-label="发布任务状态">
-              <div>
-                <strong>{releaseJob.status === 'QUEUED' ? '发布任务排队中'
-                  : releaseJob.status === 'RUNNING' ? '正在检查并构建发布文件'
-                    : releaseJob.status === 'COMPLETED' ? '发布完成'
-                      : '发布失败'}</strong>
-                <span>{releaseJob.format === 'java-properties-v1' ? 'Java Properties' : 'JSON'} · 最近更新 {new Date(releaseJob.updatedAt).toLocaleString()}</span>
-                {(releaseJob.error || releaseJobError) && <p role="alert">{releaseJob.error || releaseJobError}</p>}
-              </div>
-              <div className="inline-actions">
-                {releaseJob.status === 'FAILED' && projectActive && canManageProject && (
-                  <button className="button secondary" type="button" onClick={async () => {
-                    try {
-                      setReleaseJob(await retryRemoteReleaseJob(project.id, releaseJob.id))
-                      setReleaseJobError('')
-                      notify('发布任务已重新排队。')
-                    } catch (error) { notify(error instanceof Error ? error.message : '发布重试失败。', true) }
-                  }}>重试</button>
-                )}
-                {releaseJob.status === 'COMPLETED' && (
-                  <button className="button secondary" type="button" onClick={async () => {
-                    try {
-                      const { release, content, extension } = await downloadRemoteReleaseJobResult(project.id, releaseJob)
-                      const link = document.createElement('a')
-                      link.href = URL.createObjectURL(new Blob([content], {
-                        type: extension === 'properties' ? 'text/plain' : 'application/json',
-                      }))
-                      link.download = `yandu-${release.projectId}-${release.locale}-v${release.version}.${extension}`
-                      link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000)
-                    } catch (error) { notify(error instanceof Error ? error.message : '发布文件下载失败。', true) }
-                  }}><ArrowDownToLine size={14} />下载发布文件</button>
-                )}
-              </div>
-            </section>
-          )}
+          <section className="release-jobs" aria-label="发布任务">
+            <h3>发布任务</h3>
+            {releaseJobError && <p role="alert" className="form-error">{releaseJobError}</p>}
+            {releaseJobsLoading && visibleReleaseJobs.length === 0 ? <p className="form-hint">正在读取发布任务…</p>
+              : visibleReleaseJobs.length === 0 ? <p className="form-hint">暂无发布任务。</p> : (
+              <ul>
+                {visibleReleaseJobs.map((job) => (
+                  <li key={job.id}>
+                    <div>
+                      <strong>{job.status === 'QUEUED' ? '排队中'
+                        : job.status === 'RUNNING' ? '检查门禁并构建中'
+                          : job.status === 'COMPLETED' ? '已完成' : '失败'}</strong>
+                      <span>{job.format === 'java-properties-v1' ? 'Java Properties' : 'JSON'} · {new Date(job.updatedAt).toLocaleString()}</span>
+                      {(job.error || (job.id === releaseJob?.id ? releaseJobError : ''))
+                        && <small role="alert">{job.error || releaseJobError}</small>}
+                    </div>
+                    <div className="inline-actions">
+                      {job.status === 'FAILED' && projectActive && canManageProject && (
+                        <button className="button secondary" type="button" onClick={async () => {
+                          try {
+                            const retried = await retryRemoteReleaseJob(project.id, job.id)
+                            setReleaseJob(retried)
+                            setReleaseJobs((jobs) => [retried, ...jobs.filter((item) => item.id !== retried.id)])
+                            notify('发布任务已重新排队。')
+                          } catch (error) { notify(error instanceof Error ? error.message : '发布重试失败。', true) }
+                        }}>重试</button>
+                      )}
+                      {job.status === 'COMPLETED' && (
+                        <button className="button plain" type="button" onClick={async () => {
+                          try {
+                            const { release, content, extension } = await downloadRemoteReleaseJobResult(project.id, job)
+                            downloadTextFile(content,
+                              `yandu-${release.projectId}-${release.locale}-v${release.version}.${extension}`,
+                              extension === 'properties' ? 'text/plain' : 'application/json')
+                          } catch (error) { notify(error instanceof Error ? error.message : '发布文件下载失败。', true) }
+                        }}><ArrowDownToLine size={14} />下载文件</button>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
           {releaseHistoryLoading ? <p>正在读取发布历史…</p> : releaseHistory.length === 0 ? (
             <div className="empty-state"><FileText size={30} /><p>当前语言还没有发布版本。</p></div>
           ) : (

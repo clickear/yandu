@@ -442,6 +442,13 @@ public class ApiController {
         return releases.getJob(actors.resolve(principal), projectId, jobId);
     }
 
+    @GetMapping("/projects/{projectId}/releases/jobs")
+    public java.util.List<ReleaseApplicationService.ReleaseJobView> releaseJobs(
+            @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,
+            @RequestParam(required = false) String locale) {
+        return releases.listJobs(actors.resolve(principal), projectId, locale);
+    }
+
     @PostMapping("/projects/{projectId}/releases/jobs/{jobId}/retry")
     public ReleaseApplicationService.ReleaseJobView retryReleaseJob(
             @AuthenticationPrincipal Jwt principal, @PathVariable long projectId,

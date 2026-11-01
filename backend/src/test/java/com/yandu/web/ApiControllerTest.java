@@ -155,4 +155,22 @@ class ApiControllerTest {
         verify(releases).requestPublish(new ReleaseApplicationService.PublishRelease(
                 41L, 10L, "en-US", "json-flat-v1"), "release-key-1");
     }
+
+    @Test
+    void releaseJobHistoryIsAvailableAfterTheClientRestarts() throws Exception {
+        given(actors.resolve(any())).willReturn(41L);
+        var createdAt = java.time.Instant.parse("2026-10-01T12:00:00Z");
+        given(releases.listJobs(41L, 10L, "en-US")).willReturn(java.util.List.of(
+                new ReleaseApplicationService.ReleaseJobView("70", "10", "en-US",
+                        "json-flat-v1", "FAILED", null, "发布门禁失败", createdAt, createdAt)));
+
+        mvc.perform(get("/api/v1/projects/10/releases/jobs")
+                        .queryParam("locale", "en-US")
+                        .with(jwt().jwt(token -> token.subject("external-subject"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].status").value("FAILED"))
+                .andExpect(jsonPath("$[0].error").value("发布门禁失败"));
+
+        verify(releases).listJobs(41L, 10L, "en-US");
+    }
 }

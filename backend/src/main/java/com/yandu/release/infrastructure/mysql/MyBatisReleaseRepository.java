@@ -68,6 +68,11 @@ public class MyBatisReleaseRepository implements ReleaseRepository {
     }
 
     @Override
+    public List<ReleaseJob> listJobs(long projectId, String locale, int limit) {
+        return mapper.listJobs(projectId, locale, limit).stream().map(this::job).toList();
+    }
+
+    @Override
     public void insertJob(ReleaseJob job) {
         var row = new ReleaseMapper.ReleaseJobRow();
         row.setId(job.id());

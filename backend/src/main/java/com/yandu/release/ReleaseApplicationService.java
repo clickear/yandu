@@ -106,6 +106,14 @@ public class ReleaseApplicationService {
                 .orElseThrow(() -> new ReleaseJobNotFoundException(jobId)));
     }
 
+    @Transactional(readOnly = true)
+    public List<ReleaseJobView> listJobs(long actorId, long projectId, String locale) {
+        access.requireCanReadProject(actorId, projectId);
+        var normalizedLocale = locale == null ? null : WorkspaceApplicationService.normalizeLocale(locale);
+        return releases.listJobs(projectId, normalizedLocale, 50).stream().map(ReleaseApplicationService::jobView)
+                .toList();
+    }
+
     @Transactional
     public ReleaseJobView retryJob(long actorId, long projectId, long jobId) {
         access.requireCanPublish(actorId, projectId);

@@ -26,6 +26,8 @@ public interface ReleaseRepository {
 
     List<ReleaseJob> findQueuedJobs(int limit);
 
+    List<ReleaseJob> listJobs(long projectId, String locale, int limit);
+
     void insertJob(ReleaseJob job);
 
     boolean claimJob(long jobId, Instant updatedAt);

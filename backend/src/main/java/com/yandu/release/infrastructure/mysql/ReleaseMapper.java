@@ -94,6 +94,17 @@ public interface ReleaseMapper extends BaseMapper<ReleaseMapper.ReleaseRow> {
     @Select("SELECT * FROM release_jobs WHERE status = 'QUEUED' ORDER BY created_at, id LIMIT #{limit}")
     List<ReleaseJobRow> findQueuedJobs(@Param("limit") int limit);
 
+    @Select("""
+            <script>
+            SELECT * FROM release_jobs
+             WHERE project_id = #{projectId}
+             <if test='locale != null'>AND locale = #{locale}</if>
+             ORDER BY created_at DESC, id DESC LIMIT #{limit}
+            </script>
+            """)
+    List<ReleaseJobRow> listJobs(@Param("projectId") long projectId,
+                                 @Param("locale") String locale, @Param("limit") int limit);
+
     @Insert("""
             INSERT INTO release_jobs
               (id, project_id, locale, format, idempotency_key, request_hash, status,

@@ -400,6 +400,10 @@ export function getRemoteReleaseJob(projectId: string, jobId: string) {
   return request<RemoteReleaseJob>(`/projects/${projectId}/releases/jobs/${jobId}`)
 }
 
+export function listRemoteReleaseJobs(projectId: string, locale: string) {
+  return request<RemoteReleaseJob[]>(`/projects/${projectId}/releases/jobs?locale=${encodeURIComponent(locale)}`)
+}
+
 export function retryRemoteReleaseJob(projectId: string, jobId: string) {
   return request<RemoteReleaseJob>(`/projects/${projectId}/releases/jobs/${jobId}/retry`, { method: 'POST' })
 }

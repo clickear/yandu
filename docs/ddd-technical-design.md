@@ -345,6 +345,7 @@ erDiagram
 | `GET /api/v1/import-jobs/{jobId}` | 查看任务和预览分页 | 请求时重新授权 |
 | `POST /api/v1/import-jobs/{jobId}/apply` | 应用预览 | 必传 `previewHash` 和幂等键 |
 | `POST /api/v1/projects/{projectId}/releases` | 按 `Idempotency-Key` 创建持久化发布任务 | 202; 固定目标语言/格式 |
+| `GET /api/v1/projects/{projectId}/releases/jobs` | 查询最近发布任务 | 成员只读，可按目标语言过滤，重登后仍可查看 |
 | `GET /api/v1/projects/{projectId}/releases/jobs/{jobId}` | 查看发布任务状态和失败原因 | 每次读取重新授权 |
 | `POST /api/v1/projects/{projectId}/releases/jobs/{jobId}/retry` | 重试失败的发布任务 | 仅失败任务可重试；要求发布权限 |
 | `GET /api/v1/releases/{releaseId}` | 查看不可变发布及质量证据 | 重新授权 |
