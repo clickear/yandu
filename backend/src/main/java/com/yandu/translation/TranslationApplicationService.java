@@ -3,6 +3,7 @@ package com.yandu.translation;
 import com.yandu.audit.AuditLog;
 import com.yandu.catalog.CatalogEntryApplicationService;
 import com.yandu.catalog.CatalogEntryApplicationService.SourceChanged;
+import com.yandu.quality.PlaceholderRules;
 import com.yandu.translation.application.TranslationRepository;
 import com.yandu.translation.domain.Translation;
 import com.yandu.workspace.ProjectAccessPolicy;
@@ -267,7 +268,7 @@ public class TranslationApplicationService {
                     "译文不能为空。", java.util.Map.of(), java.util.Map.of()));
         }
         if (value != null && !value.isBlank()) {
-            var comparison = Translation.comparePlaceholders(source, value);
+            var comparison = PlaceholderRules.compare(source, value);
             if (!comparison.sourceSupported()) {
                 issues.add(new QualityIssue("SOURCE_PLACEHOLDER_FORMAT", "ERROR", entryId, locale,
                         "源文包含不支持的花括号格式；仅支持 {name}，双花括号可表示字面花括号。",

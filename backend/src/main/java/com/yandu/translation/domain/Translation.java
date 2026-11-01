@@ -1,16 +1,13 @@
 package com.yandu.translation.domain;
 
 import java.util.Locale;
-import java.util.Map;
 import java.util.Objects;
-import java.util.TreeMap;
 import java.util.regex.Pattern;
 
 /** One target-locale translation for a catalog entry. */
 public final class Translation {
 
     private static final Pattern LANGUAGE_TAG = Pattern.compile("[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*");
-    private static final Pattern PLACEHOLDER_NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_.-]*");
 
     private final long id;
     private final long projectId;
@@ -146,54 +143,6 @@ public final class Translation {
         if (normalized.equals("und")) throw new IllegalArgumentException("locale is invalid");
         return normalized;
     }
-
-    /** Compares supported named placeholders while treating doubled braces as literal text. */
-    public static PlaceholderComparison comparePlaceholders(String source, String translation) {
-        var sourceTokens = parsePlaceholders(source);
-        var translationTokens = parsePlaceholders(translation);
-        return new PlaceholderComparison(sourceTokens.supported(), translationTokens.supported(),
-                sourceTokens.counts(), translationTokens.counts());
-    }
-
-    private static ParsedPlaceholders parsePlaceholders(String text) {
-        var counts = new TreeMap<String, Integer>();
-        var supported = true;
-        for (var index = 0; index < text.length();) {
-            var current = text.charAt(index);
-            if (current == '{') {
-                if (index + 1 < text.length() && text.charAt(index + 1) == '{') {
-                    index += 2;
-                    continue;
-                }
-                var end = text.indexOf('}', index + 1);
-                if (end < 0) {
-                    supported = false;
-                    index++;
-                    continue;
-                }
-                var name = text.substring(index + 1, end);
-                if (PLACEHOLDER_NAME.matcher(name).matches()) counts.merge(name, 1, Integer::sum);
-                else supported = false;
-                index = end + 1;
-                continue;
-            }
-            if (current == '}') {
-                if (index + 1 < text.length() && text.charAt(index + 1) == '}') index += 2;
-                else {
-                    supported = false;
-                    index++;
-                }
-                continue;
-            }
-            index++;
-        }
-        return new ParsedPlaceholders(supported, Map.copyOf(counts));
-    }
-
-    private record ParsedPlaceholders(boolean supported, Map<String, Integer> counts) { }
-
-    public record PlaceholderComparison(boolean sourceSupported, boolean translationSupported,
-                                        Map<String, Integer> source, Map<String, Integer> translation) { }
 
     public long id() { return id; }
     public long projectId() { return projectId; }

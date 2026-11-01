@@ -211,6 +211,12 @@ class ReleaseTest {
         var emptyTranslation = assertThrows(ReleaseApplicationService.ReleaseGateException.class,
                 () -> service.publish(command));
         assertTrue(emptyTranslation.failures().getFirst().contains("译文不能为空"));
+
+        given(repository.lines(10L, "en-US")).willReturn(List.of(
+                new Entry(20L, "home.title", "Hello {0}", 3, "Bonjour", "APPROVED", 3, 2)));
+        var unsupportedPlaceholder = assertThrows(ReleaseApplicationService.ReleaseGateException.class,
+                () -> service.publish(command));
+        assertTrue(unsupportedPlaceholder.failures().getFirst().contains("不支持的花括号格式"));
     }
 
     @Test

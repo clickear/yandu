@@ -1,18 +1,17 @@
 package com.yandu.release.domain;
 
+import com.yandu.quality.PlaceholderRules;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.regex.Pattern;
 
 /** Immutable, quality-checked release content prepared from the current project translations. */
 public final class Release {
 
     public static final String JSON_FLAT = "json-flat-v1";
     public static final String JAVA_PROPERTIES = "java-properties-v1";
-    private static final Pattern PLACEHOLDER = Pattern.compile("\\{([A-Za-z_][A-Za-z0-9_.-]*)}");
 
     private final String locale;
     private final String format;
@@ -71,16 +70,17 @@ public final class Release {
             failures.add(label + "译文基于旧版源文");
             return;
         }
-        if (!placeholders(entry.sourceText()).equals(placeholders(entry.translation()))) {
+        var placeholders = PlaceholderRules.compare(entry.sourceText(), entry.translation());
+        if (!placeholders.sourceSupported()) {
+            failures.add(label + "源文包含不支持的花括号格式；仅支持 {name}，双花括号可表示字面花括号");
+        }
+        if (!placeholders.translationSupported()) {
+            failures.add(label + "译文包含不支持的花括号格式；仅支持 {name}，双花括号可表示字面花括号");
+        }
+        if (placeholders.sourceSupported() && placeholders.translationSupported()
+                && !placeholders.source().equals(placeholders.translation())) {
             failures.add(label + "命名占位符与源文不一致");
         }
-    }
-
-    private static Map<String, Integer> placeholders(String value) {
-        var result = new TreeMap<String, Integer>();
-        var matcher = PLACEHOLDER.matcher(value == null ? "" : value);
-        while (matcher.find()) result.merge(matcher.group(1), 1, Integer::sum);
-        return result;
     }
 
     public String locale() { return locale; }
