@@ -119,6 +119,28 @@ class ApiControllerTest {
     }
 
     @Test
+    void archivedCatalogEntriesCanBeListedAndRestoredThroughApi() throws Exception {
+        given(actors.resolve(any())).willReturn(41L);
+        given(catalog.searchArchived(any())).willReturn(new CatalogEntryApplicationService.EntryPage(
+                1, 50, 1, java.util.List.of(new CatalogEntryApplicationService.EntryView(
+                        "20", "10", "30", "home.title", "Welcome", 2, 7, false))));
+
+        mvc.perform(get("/api/v1/projects/10/catalog/archived-entries")
+                        .queryParam("namespaceId", "30")
+                        .with(jwt().jwt(token -> token.subject("external-subject"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].key").value("home.title"));
+        verify(catalog).searchArchived(new CatalogEntryApplicationService.SearchEntries(
+                41L, 10L, 30L, null, 1, 50));
+
+        mvc.perform(post("/api/v1/projects/10/catalog/entries/20/restore")
+                        .queryParam("namespaceId", "30")
+                        .with(jwt().jwt(token -> token.subject("external-subject"))))
+                .andExpect(status().isNoContent());
+        verify(catalog).restore(new CatalogEntryApplicationService.RestoreEntry(41L, 10L, 20L, 30L));
+    }
+
+    @Test
     void translationReviewCanReturnWorkWithAnAuditableReason() throws Exception {
         given(actors.resolve(any())).willReturn(41L);
         given(translations.decide(any())).willReturn(new TranslationApplicationService.TranslationView(
