@@ -175,7 +175,12 @@ public class TranslationApplicationService {
     public List<TranslationRevisionView> history(ReadTranslation query) {
         access.requireCanReadTranslation(query.actorId(), query.projectId());
         var locale = Translation.normalizeLocale(query.locale());
-        requireTargetLocale(query.actorId(), query.projectId(), locale);
+        // Archived languages remain read-only history; active-language checks belong to commands.
+        var project = workspace.getProject(query.actorId(), query.projectId());
+        if (!project.targetLocales().contains(locale)
+                && !workspace.archivedTargetLocales(query.actorId(), query.projectId()).contains(locale)) {
+            throw new TargetLocaleNotConfiguredException(locale);
+        }
         return translations.revisionHistory(query.projectId(), query.entryId(), locale, 100).stream()
                 .map(revision -> new TranslationRevisionView(Long.toString(revision.id()), revision.version(),
                         revision.value(), revision.sourceRevision(), Long.toString(revision.editedBy()),

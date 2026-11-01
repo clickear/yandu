@@ -88,6 +88,17 @@ class TranslationTest {
         verify(repository).revisionHistory(10L, 20L, "en-US", 100);
     }
 
+    @Test
+    void translationHistoryRemainsReadableForAnArchivedTargetLocale() {
+        given(workspace.archivedTargetLocales(41L, 10L)).willReturn(List.of("de-DE"));
+        given(repository.revisionHistory(10L, 20L, "de-DE", 100)).willReturn(List.of());
+
+        assertTrue(service.history(new TranslationApplicationService.ReadTranslation(
+                41L, 10L, 20L, "de-de")).isEmpty());
+
+        verify(repository).revisionHistory(10L, 20L, "de-DE", 100);
+    }
+
     @BeforeEach
     void setUpQualityService() {
         catalog = mock(CatalogEntryApplicationService.class);

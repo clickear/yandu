@@ -171,7 +171,7 @@ Translation
 - `SubmitForReview` 要求非空译文、无阻断质量错误、译文基于当前源版本；转 `IN_REVIEW`。
 - `Approve` 只允许 Reviewer/Admin 权限；禁止原译者自审；决策绑定精确 `translation.version` 和 `sourceRevision`。提交或批准后内容变动，则批准对新版本无效。
 - `RequestChanges` 需要原因并绑定版本；译员编辑后回到 `DRAFT`，再次送审产生新决定；旧决定保留。首期不实现审核决定撤回。
-- `TranslationRevision` 是不可变内容快照，不保存审核状态；项目成员可读取某条词目与目标语言最近 100 个版本，编辑器按版本、源文基线和操作者 ID 展示，不提供绕过版本校验的历史覆盖操作。
+- `TranslationRevision` 是不可变内容快照，不保存审核状态；项目成员可读取某条词目与已配置目标语言（包括已归档语言）最近 100 个版本，编辑器按版本、源文基线和操作者 ID 展示，不提供绕过版本校验的历史覆盖操作。归档语言仍可读历史，但不能编辑或发布。
 
 ### 4.5 ImportJob、Release
 
@@ -339,7 +339,7 @@ erDiagram
 | `PATCH /api/v1/projects/{projectId}/entries/{entryId}/source` | 修改源文并使旧翻译待复核 | `expectedSourceRevision` |
 | `GET /api/v1/projects/{projectId}/translations` | 按 locale/status/key 搜索、游标分页 | read model |
 | `PUT /api/v1/projects/{projectId}/entries/{entryId}/translations/{locale}` | 保存译文 | `expectedVersion`; 冲突 409 |
-| `GET /api/v1/projects/{projectId}/catalog/entries/{entryId}/translations/{locale}/history` | 查看最近 100 个译文内容修订 | 项目成员只读；按译文版本倒序 |
+| `GET /api/v1/projects/{projectId}/catalog/entries/{entryId}/translations/{locale}/history` | 查看最近 100 个译文内容修订 | 项目成员只读；活动或归档语言均可读；按译文版本倒序 |
 | `POST .../translations/{locale}/submit-review` | 送审 | `expectedVersion` |
 | `POST .../translations/{locale}/decisions` | 批准/退回 | 决策版本必须匹配；幂等 command id |
 | `POST /api/v1/projects/{projectId}/quality/check` | 单条同步检查或批量任务 | 大批返回 202 job |
