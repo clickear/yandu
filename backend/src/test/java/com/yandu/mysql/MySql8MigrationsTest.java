@@ -142,6 +142,98 @@ class MySql8MigrationsTest {
     }
 
     @Test
+    void machineTranslationSkipsResultsWhenSourceOrHumanTranslationChanges() throws Exception {
+        String subject = "machine-conflict-owner";
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT IGNORE INTO external_identities (user_id, issuer, subject, created_at)
+                    VALUES (950000000000001, 'https://issuer.example.test', 'machine-conflict-owner', UTC_TIMESTAMP(6))
+                    """);
+        }
+        HttpHeaders headers = authenticatedHeaders("mysql-machine-conflict-token", subject);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        String projectsEndpoint = "http://localhost:" + port + "/api/v1/projects";
+        ResponseEntity<JsonNode> createdProject = http.postForEntity(projectsEndpoint,
+                new HttpEntity<>("""
+                        {"name":"Machine conflict check","sourceLocale":"zh-CN","targetLocales":["en-US"]}
+                        """, headers), JsonNode.class);
+        assertEquals(HttpStatus.CREATED, createdProject.getStatusCode());
+        long projectId = Long.parseLong(createdProject.getBody().path("id").asText());
+        long namespaceId = Long.parseLong(createdProject.getBody().path("defaultNamespaceId").asText());
+        String catalogEndpoint = projectsEndpoint + "/" + projectId + "/catalog/entries";
+        var staleSourceEntry = http.postForEntity(catalogEndpoint,
+                new HttpEntity<>(json.writeValueAsString(java.util.Map.of(
+                        "namespaceId", Long.toString(namespaceId), "key", "stale.source",
+                        "sourceText", "Original source")), headers), JsonNode.class);
+        var humanEditedEntry = http.postForEntity(catalogEndpoint,
+                new HttpEntity<>(json.writeValueAsString(java.util.Map.of(
+                        "namespaceId", Long.toString(namespaceId), "key", "human.edited",
+                        "sourceText", "Human source")), headers), JsonNode.class);
+        assertEquals(HttpStatus.CREATED, staleSourceEntry.getStatusCode());
+        assertEquals(HttpStatus.CREATED, humanEditedEntry.getStatusCode());
+        String staleEntryId = staleSourceEntry.getBody().path("id").asText();
+        String humanEntryId = humanEditedEntry.getBody().path("id").asText();
+
+        given(machineTranslationProvider.isConfigured()).willReturn(true);
+        given(machineTranslationProvider.translate("Original source", "zh-CN", "en-US"))
+                .willReturn("Old machine output");
+        given(machineTranslationProvider.translate("Human source", "zh-CN", "en-US"))
+                .willReturn("Machine overwrite");
+        String jobsEndpoint = projectsEndpoint + "/" + projectId + "/machine-translation-jobs";
+        headers.set("Idempotency-Key", "machine-conflict-e2e-950");
+        ResponseEntity<JsonNode> createdJob = http.postForEntity(jobsEndpoint,
+                new HttpEntity<>("{\"locale\":\"en-US\"}", headers), JsonNode.class);
+        assertEquals(HttpStatus.ACCEPTED, createdJob.getStatusCode());
+        String jobId = createdJob.getBody().path("id").asText();
+
+        ResponseEntity<JsonNode> changedSource = http.exchange(catalogEndpoint + "/" + staleEntryId + "/source",
+                HttpMethod.PUT, new HttpEntity<>("{\"expectedSourceRevision\":1,\"sourceText\":\"Updated source\"}",
+                        headers), JsonNode.class);
+        assertEquals(HttpStatus.OK, changedSource.getStatusCode());
+        String humanTranslationEndpoint = catalogEndpoint + "/" + humanEntryId + "/translations/en-US";
+        ResponseEntity<JsonNode> savedHumanTranslation = http.exchange(humanTranslationEndpoint,
+                HttpMethod.PUT, new HttpEntity<>("""
+                        {"expectedVersion":0,"basedOnSourceRevision":1,"value":"Human translation"}
+                        """, headers), JsonNode.class);
+        assertEquals(HttpStatus.OK, savedHumanTranslation.getStatusCode());
+        machineTranslationJobs.dispatchQueuedItems();
+
+        JsonNode completed = awaitMachineTranslationStatus(jobsEndpoint + "/" + jobId, headers, "COMPLETED");
+        assertEquals(2, completed.path("skippedCount").asInt());
+        assertEquals(0, completed.path("completedCount").asInt());
+        ResponseEntity<JsonNode> jobItems = http.exchange(jobsEndpoint + "/" + jobId
+                        + "/items?page=1&pageSize=50", HttpMethod.GET,
+                new HttpEntity<>(headers), JsonNode.class);
+        var items = java.util.stream.StreamSupport.stream(
+                jobItems.getBody().path("items").spliterator(), false).toList();
+        assertTrue(items.stream().anyMatch(item -> "stale.source".equals(item.path("key").asText())
+                && "SKIPPED".equals(item.path("status").asText())
+                && item.path("error").asText().contains("源文案已更新")));
+        assertTrue(items.stream().anyMatch(item -> "human.edited".equals(item.path("key").asText())
+                && "SKIPPED".equals(item.path("status").asText())
+                && item.path("error").asText().contains("译文已修改")));
+
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement("""
+                SELECT e.entry_key, t.value, t.status, t.version
+                  FROM catalog_entries e
+                  LEFT JOIN translations t ON t.project_id = e.project_id AND t.entry_id = e.id
+                       AND t.target_locale = 'en-US'
+                 WHERE e.project_id = ? AND e.id IN (?, ?)
+                """)) {
+            statement.setLong(1, projectId);
+            statement.setLong(2, Long.parseLong(staleEntryId));
+            statement.setLong(3, Long.parseLong(humanEntryId));
+            try (var rows = statement.executeQuery()) {
+                var persisted = new java.util.HashMap<String, String>();
+                while (rows.next()) persisted.put(rows.getString("entry_key"), rows.getString("value"));
+                assertEquals(2, persisted.size());
+                assertEquals(null, persisted.get("stale.source"));
+                assertEquals("Human translation", persisted.get("human.edited"));
+            }
+        }
+    }
+
+    @Test
     void consumerCanFetchPublishedSnapshotFromMysqlWithoutAuthentication() throws Exception {
         long actorId = 920_000_000_000_001L;
         long projectId = 920_000_000_000_002L;
