@@ -54,6 +54,8 @@ Spring Boot、Spring Modulith 与 Spring Security 的选择依据及其职责边
 
 译文 MySQL API 流程现覆盖双成员协作：译员修订后送审，独立 Reviewer 退回并附原因，译员按新乐观锁版本修改/重提，Reviewer 再批准；GitHub Actions run `41290947229` 在 MySQL 8.0.46 上通过，并同时验证退回原因读取、审计事件与 API 权限。双用户并发冲突恢复仍未在浏览器端验收。
 
+MySQL 8.0.46 GitHub Actions run `41291179328` 将项目源文 JSON 导入、目标语言译文导入、占位符不匹配的送审拒绝、译员修订、Reviewer 退回/批准以及持久化发布任务串为一条真实数据库 API 流程；最终通过受保护的发布内容 API 读取快照并断言三条译文。该 run 的完整 Java/MySQL、前端构建与现有 E2E 均通过。机器翻译 provider 的 API→worker→回填由另一组协议 stub/MySQL 测试覆盖；外部真实 provider 凭证尚未配置，浏览器 API/OIDC 路径仍未 E2E 验收。
+
 Workspace 生命周期切片已补齐：项目创建默认配置一个目标语言并接受描述；项目和目标语言可归档/恢复（至少一个活动目标语言），归档项目在成员列表可见且可读历史；成员角色可调整/移除/主动离开，Owner 可转让给现有 Admin；Owner/Admin/Translator/Reviewer/Viewer 规则由 Project 聚合校验，项目归档与成员操作写审计。后端 37 项测试（含 Spring Modulith 边界检查）与前端生产构建通过；V6 已在隔离 MySQL 8.0.46 的 V1–V9 执行中验证，双用户授权矩阵与归档并发仍需专项验收。
 
 词条生命周期补齐恢复入口：Owner/Admin 可在活动命名空间内筛选归档词条并恢复；归档词条仍保留源文案、译文和历史，恢复前必须先恢复其命名空间。`CatalogEntry` 领域对象负责归档/恢复状态转换并递增目录版本，应用服务持有活动命名空间锁后协调 MyBatis 持久化，操作写入审计。后端应用服务、MyBatis 查询/API 与工作台入口已实现，MySQL 8.0 实例验证仍待执行。
