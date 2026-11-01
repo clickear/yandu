@@ -63,7 +63,8 @@ test('MySQL-backed workspace completes machine translation, review, and release'
   })
   expect(addReviewer.status()).toBe(201)
 
-  await page.getByRole('button', { name: '添加文案' }).click()
+  await page.getByRole('region', { name: '翻译工作台' })
+    .getByRole('button', { name: '添加文案' }).first().click()
   const entryDialog = page.getByRole('dialog')
   await entryDialog.getByLabel('键名').fill('welcome.title')
   await entryDialog.getByLabel('源文案 · 简体中文').fill('欢迎来到言渡')
