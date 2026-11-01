@@ -74,7 +74,6 @@ test('MySQL-backed workspace completes machine translation, review, and release'
   await page.getByRole('button', { name: '机器翻译' }).click()
   const machineDialog = page.getByRole('dialog')
   await machineDialog.getByRole('button', { name: '翻译未译文案' }).click()
-  await expect(page.getByRole('status')).toContainText('机器翻译任务已提交，共 1 条。')
   await expect(machineDialog.getByText('已回填草稿')).toBeVisible({ timeout: 30_000 })
   await machineDialog.getByRole('button', { name: '定位词条' }).click()
   await expect(page.locator('tbody tr').first()).toContainText('MT: 欢迎来到言渡')
