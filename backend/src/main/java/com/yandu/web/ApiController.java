@@ -403,6 +403,15 @@ public class ApiController {
                 actors.resolve(principal), projectId, entryId, locale));
     }
 
+    @GetMapping("/projects/{projectId}/catalog/entries/{entryId}/translations/{locale}/history")
+    @Operation(summary = "读取译文修订历史", description = "按版本倒序返回最近 100 条不可变译文快照。")
+    public java.util.List<TranslationApplicationService.TranslationRevisionView> translationHistory(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
+            @PathVariable long projectId, @PathVariable long entryId, @PathVariable String locale) {
+        return translations.history(new TranslationApplicationService.ReadTranslation(
+                actors.resolve(principal), projectId, entryId, locale));
+    }
+
     @GetMapping("/projects/{projectId}/translations")
     @Operation(summary = "分页查询翻译工作台")
     public TranslationApplicationService.WorkspacePage translationWorkspace(

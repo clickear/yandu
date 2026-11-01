@@ -202,6 +202,14 @@ public interface TranslationMapper extends BaseMapper<TranslationMapper.Translat
                                      @Param("entryId") long entryId,
                                      @Param("locale") String locale);
 
+    @Select("SELECT id, translation_version, value, based_on_source_revision, edited_by, created_at "
+            + "FROM translation_revisions WHERE project_id = #{projectId} AND entry_id = #{entryId} "
+            + "AND target_locale = #{locale} ORDER BY translation_version DESC LIMIT #{limit}")
+    java.util.List<TranslationRevisionRow> revisionHistory(@Param("projectId") long projectId,
+                                                            @Param("entryId") long entryId,
+                                                            @Param("locale") String locale,
+                                                            @Param("limit") int limit);
+
     @TableName("translations")
     @Getter
     @Setter
@@ -231,6 +239,18 @@ public interface TranslationMapper extends BaseMapper<TranslationMapper.Translat
         private String decision;
         private String reason;
         private Long reviewerId;
+        private Instant createdAt;
+    }
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    class TranslationRevisionRow {
+        private Long id;
+        private Long translationVersion;
+        private String value;
+        private Long basedOnSourceRevision;
+        private Long editedBy;
         private Instant createdAt;
     }
 

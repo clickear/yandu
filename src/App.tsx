@@ -76,6 +76,7 @@ import {
   mapProject,
   previewRemoteImport,
   readRemoteSourceHistory,
+  readRemoteTranslationHistory,
   saveRemoteTranslation,
   signIn,
   signOut,
@@ -231,12 +232,26 @@ function TranslationEditor({
   )
   const [reviewFeedback, setReviewFeedback] = useState<{ reason: string | null; at: string | null } | null>(null)
   const [reviewFeedbackError, setReviewFeedbackError] = useState(false)
+  const [translationHistory, setTranslationHistory] = useState<Awaited<ReturnType<typeof readRemoteTranslationHistory>>>([])
+  const [translationHistoryLoading, setTranslationHistoryLoading] = useState(false)
+  const [translationHistoryError, setTranslationHistoryError] = useState(false)
   useEffect(() => {
     if (!backendMode) return
     let active = true
     void loadMemorySuggestions(project.id, entry.id, locale)
       .then((matches) => { if (active) setSuggestions(matches) })
       .catch(() => { if (active) setSuggestions({ memory: [], terms: [] }) })
+    return () => { active = false }
+  }, [backendMode, project.id, entry.id, locale])
+  useEffect(() => {
+    if (!backendMode) return
+    let active = true
+    setTranslationHistoryLoading(true)
+    setTranslationHistoryError(false)
+    void readRemoteTranslationHistory(project.id, entry.id, locale)
+      .then((history) => { if (active) setTranslationHistory(history) })
+      .catch(() => { if (active) setTranslationHistoryError(true) })
+      .finally(() => { if (active) setTranslationHistoryLoading(false) })
     return () => { active = false }
   }, [backendMode, project.id, entry.id, locale])
   useEffect(() => {
@@ -318,6 +333,24 @@ function TranslationEditor({
             />
           </label>
         </div>
+        {backendMode && (
+          <section className="source-history translation-history" aria-label="译文修订历史">
+            <h3>译文修订历史</h3>
+            {translationHistoryLoading ? <p>正在读取历史…</p>
+              : translationHistoryError ? <p className="form-error" role="alert">无法读取译文历史，请稍后重试。</p>
+                : translationHistory.length ? (
+                  <ol>
+                    {translationHistory.map((revision) => (
+                      <li key={revision.id}>
+                        <div><strong>版本 {revision.version}</strong><time>{new Date(revision.createdAt).toLocaleString()}</time></div>
+                        <p>{revision.value || '（空译文）'}</p>
+                        <small>基于源文版本 {revision.sourceRevision} · 操作者 ID {revision.editedBy}</small>
+                      </li>
+                    ))}
+                  </ol>
+                ) : <p>暂无已保存的译文修订。</p>}
+          </section>
+        )}
         {backendMode && (suggestions.memory.length > 0 || suggestions.terms.length > 0) && (
           <section className="memory-suggestions" aria-label="翻译记忆建议">
             {suggestions.memory.length > 0 && <h3>相同源文的已审核译文</h3>}

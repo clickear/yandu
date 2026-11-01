@@ -41,6 +41,9 @@ public interface TranslationRepository {
 
     Optional<ReviewFeedback> latestReviewFeedback(long projectId, long entryId, String locale);
 
+    /** Returns recent immutable content snapshots for one project entry and target locale. */
+    List<TranslationRevision> revisionHistory(long projectId, long entryId, String locale, int limit);
+
     void markNeedsReview(long projectId, long entryId, long sourceRevision,
                          long sourceEditorId, Instant occurredAt);
 
@@ -55,4 +58,7 @@ public interface TranslationRepository {
                        String locale, long translationVersion) { }
 
     record ReviewFeedback(String decision, String reason, long reviewerId, Instant decidedAt) { }
+
+    record TranslationRevision(long id, long version, String value, long sourceRevision,
+                               long editedBy, Instant createdAt) { }
 }

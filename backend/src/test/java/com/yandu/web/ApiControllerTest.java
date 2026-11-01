@@ -231,6 +231,24 @@ class ApiControllerTest {
     }
 
     @Test
+    void translationRevisionHistoryUsesTheAuthenticatedActorAndEntryLocaleScope() throws Exception {
+        given(actors.resolve(any())).willReturn(41L);
+        var createdAt = java.time.Instant.parse("2026-10-31T10:00:00Z");
+        given(translations.history(any())).willReturn(java.util.List.of(
+                new TranslationApplicationService.TranslationRevisionView(
+                        "82", 2, "Sign in", 3, "42", createdAt)));
+
+        mvc.perform(get("/api/v1/projects/10/catalog/entries/20/translations/en-US/history")
+                        .with(jwt().jwt(token -> token.subject("external-subject"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].version").value(2))
+                .andExpect(jsonPath("$[0].value").value("Sign in"))
+                .andExpect(jsonPath("$[0].editedBy").value("42"));
+        verify(translations).history(new TranslationApplicationService.ReadTranslation(
+                41L, 10L, 20L, "en-US"));
+    }
+
+    @Test
     void releaseRequestReturnsDurableJobForPolling() throws Exception {
         given(actors.resolve(any())).willReturn(41L);
         var createdAt = java.time.Instant.parse("2026-10-01T12:00:00Z");

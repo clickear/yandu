@@ -91,6 +91,15 @@ public class MyBatisTranslationRepository implements TranslationRepository {
     }
 
     @Override
+    public List<TranslationRevision> revisionHistory(long projectId, long entryId,
+                                                     String locale, int limit) {
+        return mapper.revisionHistory(projectId, entryId, Translation.normalizeLocale(locale), limit)
+                .stream().map(row -> new TranslationRevision(row.getId(), row.getTranslationVersion(),
+                        row.getValue(), row.getBasedOnSourceRevision(), row.getEditedBy(), row.getCreatedAt()))
+                .toList();
+    }
+
+    @Override
     public void markNeedsReview(long projectId, long entryId, long sourceRevision,
                                 long sourceEditorId, Instant occurredAt) {
         for (var row : mapper.findForSourceChange(projectId, entryId, sourceRevision)) {

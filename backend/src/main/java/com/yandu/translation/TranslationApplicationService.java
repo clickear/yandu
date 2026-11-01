@@ -172,6 +172,18 @@ public class TranslationApplicationService {
     }
 
     @Transactional(readOnly = true)
+    public List<TranslationRevisionView> history(ReadTranslation query) {
+        access.requireCanReadTranslation(query.actorId(), query.projectId());
+        var locale = Translation.normalizeLocale(query.locale());
+        requireTargetLocale(query.actorId(), query.projectId(), locale);
+        return translations.revisionHistory(query.projectId(), query.entryId(), locale, 100).stream()
+                .map(revision -> new TranslationRevisionView(Long.toString(revision.id()), revision.version(),
+                        revision.value(), revision.sourceRevision(), Long.toString(revision.editedBy()),
+                        revision.createdAt()))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public WorkspacePage searchWorkspace(SearchWorkspace query) {
         access.requireCanReadTranslation(query.actorId(), query.projectId());
         var locale = Translation.normalizeLocale(query.locale());
@@ -408,6 +420,9 @@ public class TranslationApplicationService {
                                   String latestReviewReason, String latestReviewerId,
                                   java.time.Instant latestReviewAt) {
     }
+
+    public record TranslationRevisionView(String id, long version, String value, long sourceRevision,
+                                          String editedBy, java.time.Instant createdAt) { }
 
     public record SearchWorkspace(long actorId, long projectId, long namespaceId, String locale,
                                   String status, String keyword, int page, int pageSize) {

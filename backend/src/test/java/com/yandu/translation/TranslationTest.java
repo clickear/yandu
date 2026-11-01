@@ -70,6 +70,24 @@ class TranslationTest {
         verify(repository, never()).appendRevision(any(), anyLong(), any(java.time.Instant.class));
     }
 
+    @Test
+    void translationHistoryIsProjectScopedAndReturnsRecentImmutableRevisions() {
+        var createdAt = java.time.Instant.parse("2026-10-31T10:00:00Z");
+        given(repository.revisionHistory(10L, 20L, "en-US", 100)).willReturn(List.of(
+                new TranslationRepository.TranslationRevision(82L, 2L, "Sign in", 3L, 42L, createdAt),
+                new TranslationRepository.TranslationRevision(81L, 1L, "Log in", 2L, 41L, createdAt.minusSeconds(60))));
+
+        var history = service.history(new TranslationApplicationService.ReadTranslation(
+                41L, 10L, 20L, "en-us"));
+
+        assertEquals(2, history.size());
+        assertEquals("82", history.getFirst().id());
+        assertEquals(2L, history.getFirst().version());
+        assertEquals("Sign in", history.getFirst().value());
+        assertEquals("42", history.getFirst().editedBy());
+        verify(repository).revisionHistory(10L, 20L, "en-US", 100);
+    }
+
     @BeforeEach
     void setUpQualityService() {
         catalog = mock(CatalogEntryApplicationService.class);

@@ -269,6 +269,13 @@ export function readRemoteSourceHistory(projectId: string, entryId: string) {
   )
 }
 
+export function readRemoteTranslationHistory(projectId: string, entryId: string, locale: string) {
+  return request<{ id: string; version: number; value: string; sourceRevision: number;
+    editedBy: string; createdAt: string }[]>(
+    `/projects/${projectId}/catalog/entries/${entryId}/translations/${encodeURIComponent(locale)}/history`,
+  )
+}
+
 export function archiveRemoteEntry(projectId: string, entryId: string) {
   return request<void>(`/projects/${projectId}/catalog/entries/${entryId}`, { method: 'DELETE' })
 }
