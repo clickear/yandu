@@ -1,6 +1,6 @@
-package com.yandu.translation.infrastructure.http;
+package com.yandu.translation.provider.openaicompatible;
 
-import com.yandu.translation.application.MachineTranslationProvider;
+import com.yandu.translation.contract.MachineTranslationProvider;
 import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.List;

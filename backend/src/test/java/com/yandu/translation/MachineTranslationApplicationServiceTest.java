@@ -12,10 +12,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.yandu.audit.AuditLog;
-import com.yandu.translation.application.MachineTranslationProvider;
+import com.yandu.translation.contract.MachineTranslationProvider;
 import com.yandu.translation.application.MachineTranslationRepository;
-import com.yandu.translation.infrastructure.http.LibreTranslateProvider;
-import com.yandu.translation.infrastructure.http.OpenAiCompatibleProvider;
 import com.yandu.workspace.ProjectAccessPolicy;
 import com.yandu.workspace.WorkspaceApplicationService;
 import java.nio.charset.StandardCharsets;
@@ -25,15 +23,11 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.HexFormat;
-import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.core.task.TaskExecutor;
-import org.springframework.web.client.RestClient;
-import com.sun.net.httpserver.HttpServer;
 
 class MachineTranslationApplicationServiceTest {
 
@@ -182,64 +176,6 @@ class MachineTranslationApplicationServiceTest {
     private static MachineTranslationRepository.JobItem claimedItem(int attempt) {
         return new MachineTranslationRepository.JobItem(900L, 101L, "zh-CN", "en-US", 501L,
                 301L, "home.title", "你好", 1L, null, 11L, attempt, "RUNNING", null);
-    }
-
-    @Test
-    void libreTranslateAdapterSendsLocaleLanguageCodesAndParsesTheResponse() throws Exception {
-        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        var requestBody = new AtomicReference<String>();
-        server.createContext("/translate", exchange -> {
-            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-            var response = "{\"translatedText\":\"Hello\"}".getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().add("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, response.length);
-            exchange.getResponseBody().write(response);
-            exchange.close();
-        });
-        server.start();
-        try {
-            var adapter = new LibreTranslateProvider(RestClient.builder(),
-                    "http://127.0.0.1:" + server.getAddress().getPort(), "test-secret", 5000);
-
-            assertEquals("Hello", adapter.translate("你好", "zh-CN", "en-US"));
-            org.junit.jupiter.api.Assertions.assertTrue(requestBody.get().contains("\"source\":\"zh\""));
-            org.junit.jupiter.api.Assertions.assertTrue(requestBody.get().contains("\"target\":\"en\""));
-            org.junit.jupiter.api.Assertions.assertTrue(requestBody.get().contains("\"api_key\":\"test-secret\""));
-        } finally {
-            server.stop(0);
-        }
-    }
-
-    @Test
-    void openAiCompatibleAdapterSendsModelAndTranslationPromptToChatCompletions() throws Exception {
-        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        var requestBody = new AtomicReference<String>();
-        var authorization = new AtomicReference<String>();
-        server.createContext("/v1/chat/completions", exchange -> {
-            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
-            var response = "{\"choices\":[{\"message\":{\"content\":\"Hello {name}\"}}]}"
-                    .getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().add("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, response.length);
-            exchange.getResponseBody().write(response);
-            exchange.close();
-        });
-        server.start();
-        try {
-            var adapter = new OpenAiCompatibleProvider(RestClient.builder(),
-                    "http://127.0.0.1:" + server.getAddress().getPort() + "/v1/",
-                    "server-secret", "translation-model", 5000);
-
-            assertEquals("Hello {name}", adapter.translate("你好 {name}", "zh-CN", "en-US"));
-            assertEquals("Bearer server-secret", authorization.get());
-            org.junit.jupiter.api.Assertions.assertTrue(requestBody.get().contains("\"model\":\"translation-model\""));
-            org.junit.jupiter.api.Assertions.assertTrue(requestBody.get().contains("\"content\":\"你好 {name}\""));
-            org.junit.jupiter.api.Assertions.assertTrue(requestBody.get().contains("zh-CN"));
-            org.junit.jupiter.api.Assertions.assertTrue(requestBody.get().contains("en-US"));
-        } finally {
-            server.stop(0);
-        }
     }
 
     private void project() {

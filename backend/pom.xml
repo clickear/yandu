@@ -46,6 +46,11 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
+            <groupId>com.yandu</groupId>
+            <artifactId>yandu-machine-translation-contract</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
@@ -117,6 +122,26 @@
     </build>
 
     <profiles>
+        <profile>
+            <id>machine-translation-libretranslate</id>
+            <dependencies>
+                <dependency>
+                    <groupId>com.yandu</groupId>
+                    <artifactId>yandu-machine-translation-libretranslate</artifactId>
+                    <version>${project.version}</version>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>machine-translation-openai-compatible</id>
+            <dependencies>
+                <dependency>
+                    <groupId>com.yandu</groupId>
+                    <artifactId>yandu-machine-translation-openai-compatible</artifactId>
+                    <version>${project.version}</version>
+                </dependency>
+            </dependencies>
+        </profile>
         <profile>
             <id>sync-netty</id>
             <dependencies>

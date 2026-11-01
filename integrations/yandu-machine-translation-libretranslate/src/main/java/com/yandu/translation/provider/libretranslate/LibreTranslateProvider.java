@@ -1,11 +1,10 @@
-package com.yandu.translation.infrastructure.http;
+package com.yandu.translation.provider.libretranslate;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.yandu.translation.application.MachineTranslationProvider;
+import com.yandu.translation.contract.MachineTranslationProvider;
 import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.Locale;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
@@ -20,9 +19,9 @@ public class LibreTranslateProvider implements MachineTranslationProvider {
 
     public LibreTranslateProvider(
             RestClient.Builder builder,
-            @Value("${yandu.machine-translation.base-url:}") String baseUrl,
-            @Value("${yandu.machine-translation.api-key:}") String apiKey,
-            @Value("${yandu.machine-translation.timeout-ms:30000}") int timeoutMs) {
+            String baseUrl,
+            String apiKey,
+            int timeoutMs) {
         this.baseUri = parseBaseUri(baseUrl);
         this.apiKey = apiKey == null ? "" : apiKey.trim();
         if (timeoutMs < 1000 || timeoutMs > 120_000) {

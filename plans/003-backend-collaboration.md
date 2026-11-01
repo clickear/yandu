@@ -4,6 +4,8 @@
 
 ## 当前实现进度
 
+- 机器翻译基础依赖按功能模块拆分：provider 端口位于 `yandu-machine-translation-contract`，LibreTranslate 与 OpenAI-compatible 分别位于可选 Maven 实现模块，通过 `machine-translation-libretranslate` / `machine-translation-openai-compatible` profiles 引入；backend 单独构建不再包含具体 HTTP provider 实现。两实现可同时引入，`YANDU_MT_PROVIDER` 选择已安装的实现；未安装时服务明确返回不可用。两适配器本地 HTTP 协议测试和 JDK 21 backend 全套 70 项测试均通过；MySQL/API 工作流无需重测，本次没有改业务持久化。
+
 - 已建立 `backend/` Spring Boot / MyBatis-Plus 模块化单体工程与 MySQL 迁移基线。
 - Workspace 项目创建、默认命名空间、目标语言配置和 Catalog 源词条切片已建立；Catalog 支持创建、源文变更、检索分页、修订历史和归档。实体 ID 使用 `BIGINT` 雪花算法，JSON 边界按十进制字符串处理。
 - 已接入通用 OIDC JWT、issuer/audience 校验、OIDC subject 到内部雪花 ID 映射、项目成员角色授权和 `/api/v1` 项目/Catalog API。IdP 与 audience 需由部署环境提供；租户模式和 Outbox 未实现。

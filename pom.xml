@@ -13,6 +13,9 @@
 
     <modules>
         <module>integrations/yandu-translation-sync-contract</module>
+        <module>integrations/yandu-machine-translation-contract</module>
+        <module>integrations/yandu-machine-translation-libretranslate</module>
+        <module>integrations/yandu-machine-translation-openai-compatible</module>
         <module>backend</module>
         <module>integrations/yandu-translation-spring-boot-starter</module>
         <module>integrations/yandu-translation-sync-netty</module>

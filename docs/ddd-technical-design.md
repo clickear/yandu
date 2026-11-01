@@ -232,7 +232,7 @@ Quality 模块对当前 sourceRevision/value/version 计算结构化问题：`ru
 
 ### 5.4 机器翻译任务
 
-机器翻译用独立持久化任务和词条项，不使用内存队列或 Outbox。任务创建时固定项目、目标语言、源语言、幂等请求摘要及符合条件的源文/译文版本快照；worker 通过 `MachineTranslationProvider` 端口调用由部署配置选择的 LibreTranslate-compatible `/translate` 或 OpenAI-compatible Chat Completions provider，后者可连接大模型 API 或兼容第三方网关。每条结果回填前重新授权、锁定源词条并检查源修订、期望译文版本和当前译文仍为空。任一检查不符就跳过，绝不覆盖人工已保存内容；成功回填为 `DRAFT` 并追加正常译文版本历史。provider 错误形成可见失败项，显式重试只重排失败项，失联的 `RUNNING` 项按上限自动恢复。模型名、endpoint 和 API key 仅从服务端环境配置读取。
+机器翻译用独立持久化任务和词条项，不使用内存队列或 Outbox。任务创建时固定项目、目标语言、源语言、幂等请求摘要及符合条件的源文/译文版本快照；worker 通过独立 `yandu-machine-translation-contract` 模块中的 `MachineTranslationProvider` 端口调用可选实现。LibreTranslate-compatible `/translate` 和 OpenAI-compatible Chat Completions 分别位于独立 Maven 模块，通过 `machine-translation-libretranslate` 或 `machine-translation-openai-compatible` profile 显式引入；部署属性选择已引入的实现。未引入实现时由后端提供不可用适配器，接口明确返回服务不可用，不会静默调用外部服务。每条结果回填前重新授权、锁定源词条并检查源修订、期望译文版本和当前译文仍为空。任一检查不符就跳过，绝不覆盖人工已保存内容；成功回填为 `DRAFT` 并追加正常译文版本历史。provider 错误形成可见失败项，显式重试只重排失败项，失联的 `RUNNING` 项按上限自动恢复。模型名、endpoint 和 API key 仅从服务端环境配置读取。
 
 发布命令带 `projectId + locale(s) + format + expectedCatalogRevision + idempotencyKey`。Release 应用服务校验：操作者权限、词条覆盖策略、无处于过期源版本的已批准译文、当前版本全部通过 blocker 质量规则，然后创建快照任务。Worker 写临时对象，校验解析/序列化 fixtures、计算 checksum，最后以不可变 artifact key 标记 READY/PUBLISHED。下载每次重新验证当前访问权限并审计，不把永久公开的对象 URL 暴露给未授权用户。
 
