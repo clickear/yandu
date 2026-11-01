@@ -8,29 +8,43 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yandu.imports.infrastructure.mysql.ImportMapper;
+import com.yandu.release.ReleasePublishedEvent;
 import com.yandu.translation.infrastructure.mysql.MachineTranslationMapper;
 import com.yandu.translation.infrastructure.mysql.TranslationMapper;
 import com.yandu.workspace.infrastructure.mysql.MyBatisProjectAccessPolicy;
 import com.yandu.workspace.infrastructure.mysql.WorkspaceMapper;
+import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.net.URI;
+import java.net.http.WebSocket;
 import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.jdbc.datasource.DataSourceUtils;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 /** Runs the real Flyway chain against the MySQL 8.0 service used by CI. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.security.oauth2.resourceserver.jwt.issuer-uri=https://issuer.example.test",
-        "spring.security.oauth2.resourceserver.jwt.audiences=yandu-api"
+        "spring.security.oauth2.resourceserver.jwt.audiences=yandu-api",
+        "yandu.sync.netty.enabled=true",
+        "yandu.sync.netty.port=19091",
+        "yandu.sync.websocket.enabled=true"
 })
 @EnabledIfSystemProperty(named = "yandu.mysql.integration", matches = "true")
 class MySql8MigrationsTest {
@@ -43,6 +57,8 @@ class MySql8MigrationsTest {
     @Autowired private WorkspaceMapper workspace;
     @Autowired private TestRestTemplate http;
     @Autowired private ObjectMapper json;
+    @Autowired private ApplicationEventPublisher events;
+    @Autowired private TransactionTemplate transactions;
     @LocalServerPort private int port;
 
     @Test
@@ -161,5 +177,125 @@ class MySql8MigrationsTest {
         assertEquals(content, snapshot.getBody());
         assertEquals(checksum, HexFormat.of().formatHex(
                 MessageDigest.getInstance("SHA-256").digest(snapshot.getBody().getBytes(StandardCharsets.UTF_8))));
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "yandu.sync.integration", matches = "true")
+    void committedMysqlReleasePushesToNettyAndWebSocketConsumers() throws Exception {
+        long actorId = 930_000_000_000_001L;
+        long projectId = 930_000_000_000_002L;
+        long initialReleaseId = 930_000_000_000_003L;
+        long latestReleaseId = 930_000_000_000_004L;
+        String initialContent = "{\"welcome.title\":\"Bonjour\"}\n";
+        String latestContent = "{\"welcome.title\":\"Bienvenue\"}\n";
+        String initialChecksum = checksum(initialContent);
+        String latestChecksum = checksum(latestContent);
+
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO external_identities (user_id, issuer, subject, created_at)
+                    VALUES (930000000000001, 'https://issuer.example.test', 'sync-consumer', UTC_TIMESTAMP(6))
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO projects (id, owner_id, name, source_locale, version, status, created_at, updated_at)
+                    VALUES (930000000000002, 930000000000001, 'Realtime sync check', 'zh-CN', 1, 'ACTIVE',
+                            UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO project_languages (project_id, locale, created_at)
+                    VALUES (930000000000002, 'fr-FR', UTC_TIMESTAMP(6))
+                    """);
+        }
+        insertRelease(initialReleaseId, projectId, actorId, 1, initialContent, initialChecksum);
+
+        try (var netty = new Socket()) {
+            netty.connect(new InetSocketAddress("127.0.0.1", 19091), 3_000);
+            netty.setSoTimeout(5_000);
+            var nettyReader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(netty.getInputStream(), StandardCharsets.UTF_8));
+            var nettyWriter = new java.io.BufferedWriter(
+                    new java.io.OutputStreamWriter(netty.getOutputStream(), StandardCharsets.UTF_8));
+            nettyWriter.write(subscription(projectId));
+            nettyWriter.newLine();
+            nettyWriter.flush();
+            assertEquals(initialChecksum, notificationChecksum(json.readTree(nettyReader.readLine())));
+
+            var websocketMessages = new LinkedBlockingQueue<String>();
+            WebSocket websocket = java.net.http.HttpClient.newHttpClient().newWebSocketBuilder()
+                    .buildAsync(URI.create("ws://localhost:" + port + "/api/v1/public/translations/ws"),
+                            new WebSocket.Listener() {
+                                @Override
+                                public void onOpen(WebSocket socket) {
+                                    socket.request(1);
+                                    socket.sendText(subscription(projectId).strip(), true);
+                                }
+
+                                @Override
+                                public CompletableFuture<?> onText(WebSocket socket, CharSequence data,
+                                                                   boolean last) {
+                                    if (last) websocketMessages.offer(data.toString());
+                                    socket.request(1);
+                                    return CompletableFuture.completedFuture(null);
+                                }
+                            }).join();
+            assertEquals(initialChecksum, notificationChecksum(json.readTree(
+                    websocketMessages.poll(5, TimeUnit.SECONDS))));
+
+            transactions.executeWithoutResult(status -> {
+                insertRelease(latestReleaseId, projectId, actorId, 2, latestContent, latestChecksum);
+                events.publishEvent(new ReleasePublishedEvent(projectId, "fr-FR", "json-flat-v1",
+                        latestReleaseId, 2, latestChecksum, java.time.Instant.now()));
+            });
+
+            assertEquals(latestChecksum, notificationChecksum(json.readTree(nettyReader.readLine())));
+            assertEquals(latestChecksum, notificationChecksum(json.readTree(
+                    websocketMessages.poll(5, TimeUnit.SECONDS))));
+
+            String endpoint = "http://localhost:" + port + "/api/v1/public/projects/" + projectId
+                    + "/translations/fr-FR/latest";
+            ResponseEntity<String> snapshot = http.getForEntity(endpoint + "/content", String.class);
+            assertEquals(HttpStatus.OK, snapshot.getStatusCode());
+            assertEquals(latestContent, snapshot.getBody());
+            assertEquals(latestChecksum, checksum(snapshot.getBody()));
+            websocket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+        }
+    }
+
+    private void insertRelease(long releaseId, long projectId, long actorId, long version,
+                               String content, String checksum) {
+        var connection = DataSourceUtils.getConnection(dataSource);
+        try (var insert = connection.prepareStatement("""
+                INSERT INTO releases
+                  (id, project_id, locale, format, version_no, content, manifest_json,
+                   checksum_sha256, published_by, published_at)
+                VALUES (?, ?, 'fr-FR', 'json-flat-v1', ?, ?, '[]', ?, ?, UTC_TIMESTAMP(6))
+                """)) {
+            insert.setLong(1, releaseId);
+            insert.setLong(2, projectId);
+            insert.setLong(3, version);
+            insert.setString(4, content);
+            insert.setString(5, checksum);
+            insert.setLong(6, actorId);
+            insert.executeUpdate();
+        } catch (Exception failure) {
+            throw new IllegalStateException("Could not insert published snapshot for MySQL sync test", failure);
+        } finally {
+            DataSourceUtils.releaseConnection(connection, dataSource);
+        }
+    }
+
+    private String subscription(long projectId) {
+        return "{\"type\":\"subscribe\",\"projectId\":" + projectId
+                + ",\"locale\":\"fr-FR\",\"format\":\"json-flat-v1\"}";
+    }
+
+    private static String notificationChecksum(JsonNode message) {
+        assertEquals("release-changed", message.path("type").asText());
+        return message.path("metadata").path("checksumSha256").asText();
+    }
+
+    private static String checksum(String content) throws Exception {
+        return HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(content.getBytes(StandardCharsets.UTF_8)));
     }
 }

@@ -33,7 +33,7 @@ jobs:
           node-version: '24'
           cache: npm
       - name: Verify Java modules and MySQL 8.0 migrations
-        run: mvn -B -Dyandu.mysql.integration=true test
+        run: mvn -B -Psync-netty,sync-websocket -Dyandu.mysql.integration=true -Dyandu.sync.integration=true test
         env:
           YANDU_DB_URL: jdbc:mysql://127.0.0.1:3306/yandu?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
           YANDU_DB_USER: root
