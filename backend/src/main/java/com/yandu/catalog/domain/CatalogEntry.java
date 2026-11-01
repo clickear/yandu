@@ -12,9 +12,15 @@ public final class CatalogEntry {
     private String sourceText;
     private long sourceRevision;
     private long version;
+    private Status status;
 
     public CatalogEntry(long id, long projectId, long namespaceId, String key, String sourceText,
                         long sourceRevision, long version) {
+        this(id, projectId, namespaceId, key, sourceText, sourceRevision, version, Status.ACTIVE);
+    }
+
+    public CatalogEntry(long id, long projectId, long namespaceId, String key, String sourceText,
+                        long sourceRevision, long version, Status status) {
         if (id <= 0 || projectId <= 0 || namespaceId <= 0) {
             throw new IllegalArgumentException("id, projectId and namespaceId must be positive");
         }
@@ -28,9 +34,35 @@ public final class CatalogEntry {
         }
         this.sourceRevision = sourceRevision;
         this.version = version;
+        this.status = Objects.requireNonNull(status, "status");
+    }
+
+    public LifecycleChange archive() {
+        return changeStatus(Status.ACTIVE, Status.ARCHIVED);
+    }
+
+    public LifecycleChange restore() {
+        return changeStatus(Status.ARCHIVED, Status.ACTIVE);
+    }
+
+    private LifecycleChange changeStatus(Status expected, Status next) {
+        if (status != expected) {
+            throw new IllegalStateException("Cannot change catalog entry from " + status + " to " + next);
+        }
+        var previousVersion = version;
+        status = next;
+        version = Math.incrementExact(version);
+        return new LifecycleChange(expected, next, previousVersion, version);
+    }
+
+    private void requireActive() {
+        if (status != Status.ACTIVE) {
+            throw new IllegalStateException("Archived catalog entries cannot be edited");
+        }
     }
 
     public SourceChange changeSource(long expectedRevision, String newSourceText) {
+        requireActive();
         if (expectedRevision != sourceRevision) {
             throw new SourceRevisionConflictException(expectedRevision, sourceRevision);
         }
@@ -77,8 +109,11 @@ public final class CatalogEntry {
         return version;
     }
 
+    public Status status() { return status; }
+
     /** Reorganizes metadata without changing source revision or translation identity. */
     public Reorganization reorganize(long expectedVersion, long targetNamespaceId, String newKey) {
+        requireActive();
         if (expectedVersion != version) {
             throw new VersionConflictException(expectedVersion, version);
         }
@@ -126,6 +161,11 @@ public final class CatalogEntry {
 
     public record Reorganization(long previousNamespaceId, String previousKey,
                                  long previousVersion, long currentVersion, boolean changed) { }
+
+    public enum Status { ACTIVE, ARCHIVED }
+
+    public record LifecycleChange(Status previousStatus, Status currentStatus,
+                                  long previousVersion, long currentVersion) { }
 
     public static final class VersionConflictException extends RuntimeException {
         private final long expectedVersion;

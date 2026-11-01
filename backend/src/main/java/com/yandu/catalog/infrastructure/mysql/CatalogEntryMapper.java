@@ -42,6 +42,10 @@ public interface CatalogEntryMapper extends BaseMapper<CatalogEntryMapper.Catalo
     CatalogEntryRow findActive(@Param("projectId") long projectId,
                                @Param("entryId") long entryId);
 
+    @Select("SELECT id, project_id, namespace_id, source_locale, entry_key, source_text, source_revision, version, status, created_by, updated_by, created_at, updated_at FROM catalog_entries WHERE project_id = #{projectId} AND id = #{entryId} AND status = 'ARCHIVED' FOR UPDATE")
+    CatalogEntryRow findArchivedForUpdate(@Param("projectId") long projectId,
+                                          @Param("entryId") long entryId);
+
     @Select("""
             SELECT id, project_id, namespace_id, source_locale, entry_key,
                    source_text, source_revision, version, status, created_by, updated_by,
@@ -93,20 +97,12 @@ public interface CatalogEntryMapper extends BaseMapper<CatalogEntryMapper.Catalo
     @Select("SELECT COUNT(*) FROM catalog_entries WHERE project_id = #{projectId} AND status = 'ACTIVE' AND (#{keyword} IS NULL OR entry_key LIKE CONCAT('%', #{keyword}, '%'))")
     long countProjectActive(@Param("projectId") long projectId, @Param("keyword") String keyword);
 
-    @Update("""
-            UPDATE catalog_entries
-               SET status = 'ARCHIVED', updated_by = #{actorId}, updated_at = #{updatedAt}
-             WHERE project_id = #{projectId} AND id = #{entryId} AND status = 'ACTIVE'
-            """)
-    int archive(@Param("projectId") long projectId,
-                @Param("entryId") long entryId,
-                @Param("actorId") long actorId,
-                @Param("updatedAt") java.time.Instant updatedAt);
-
-    @Update("UPDATE catalog_entries SET status = 'ACTIVE', updated_by = #{actorId}, updated_at = #{updatedAt} WHERE project_id = #{projectId} AND id = #{entryId} AND namespace_id = #{namespaceId} AND status = 'ARCHIVED' AND EXISTS (SELECT 1 FROM namespaces n WHERE n.project_id = #{projectId} AND n.id = #{namespaceId} AND n.status = 'ACTIVE')")
-    int restore(@Param("projectId") long projectId, @Param("entryId") long entryId,
-                @Param("namespaceId") long namespaceId, @Param("actorId") long actorId,
-                @Param("updatedAt") Instant updatedAt);
+    @Update("UPDATE catalog_entries SET status = #{status}, version = #{newVersion}, updated_by = #{actorId}, updated_at = #{updatedAt} WHERE project_id = #{projectId} AND id = #{entryId} AND status = #{expectedStatus} AND version = #{expectedVersion}")
+    int updateLifecycle(@Param("projectId") long projectId, @Param("entryId") long entryId,
+                        @Param("expectedStatus") String expectedStatus,
+                        @Param("expectedVersion") long expectedVersion,
+                        @Param("status") String status, @Param("newVersion") long newVersion,
+                        @Param("actorId") long actorId, @Param("updatedAt") Instant updatedAt);
 
     @Update("""
             UPDATE catalog_entries

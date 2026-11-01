@@ -47,7 +47,7 @@ Spring Boot、Spring Modulith 与 Spring Security 的选择依据及其职责边
 
 Workspace 生命周期切片已补齐：项目创建默认配置一个目标语言并接受描述；项目和目标语言可归档/恢复（至少一个活动目标语言），归档项目在成员列表可见且可读历史；成员角色可调整/移除/主动离开，Owner 可转让给现有 Admin；Owner/Admin/Translator/Reviewer/Viewer 规则由 Project 聚合校验，项目归档与成员操作写审计。后端 37 项测试（含 Spring Modulith 边界检查）与前端生产构建通过；V6 已在隔离 MySQL 8.0.46 的 V1–V9 执行中验证，双用户授权矩阵与归档并发仍需专项验收。
 
-词条生命周期补齐恢复入口：Owner/Admin 可在活动命名空间内筛选归档词条并恢复；归档词条仍保留源文案、译文和历史，恢复前必须先恢复其命名空间。恢复操作写入审计并重新纳入工作台/未来发布；恢复查询和更新以项目、词条及归档状态限定。后端应用服务、MyBatis 查询/API 与工作台入口已实现，MySQL 8.0 实例验证仍待执行。
+词条生命周期补齐恢复入口：Owner/Admin 可在活动命名空间内筛选归档词条并恢复；归档词条仍保留源文案、译文和历史，恢复前必须先恢复其命名空间。`CatalogEntry` 领域对象负责归档/恢复状态转换并递增目录版本，应用服务持有活动命名空间锁后协调 MyBatis 持久化，操作写入审计。后端应用服务、MyBatis 查询/API 与工作台入口已实现，MySQL 8.0 实例验证仍待执行。
 
 机器翻译通过可配置 HTTP provider 纳入主流程，支持 LibreTranslate-compatible `/translate` 及 OpenAI-compatible Chat Completions（可接大模型 API 或第三方兼容网关）。设置 `YANDU_MT_PROVIDER`、`YANDU_MT_BASE_URL`，大模型还需 `YANDU_MT_MODEL`；必要时设置服务端 `YANDU_MT_API_KEY`。可为当前目标语言创建幂等异步任务，最多四个 worker 并发执行，按词条展示进度/失败并重试；空 provider 结果记录为失败，不创建空译文；有效结果只写入草稿，回填时锁源词条并比较源修订、译文版本和空值，版本变化或人工已译时跳过。provider 未配置时返回 503，不创建任务。MySQL 8.0.46 上 V1–V9 已执行；本地数据库端到端 API 流程验证了幂等创建、机器结果草稿回填、人工修订/审核和发布导出，协议 stub 下人工编辑与源版本竞争均安全跳过。真实外部 provider 调用、部署 IdP 和多实例并发仍未验证。
 

@@ -378,10 +378,9 @@ public class ApiController {
     @PostMapping("/projects/{projectId}/catalog/entries/{entryId}/restore")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void restoreEntry(@Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
-                             @PathVariable long projectId, @PathVariable long entryId,
-                             @RequestParam long namespaceId) {
+                             @PathVariable long projectId, @PathVariable long entryId) {
         catalog.restore(new CatalogEntryApplicationService.RestoreEntry(
-                actors.resolve(principal), projectId, entryId, namespaceId));
+                actors.resolve(principal), projectId, entryId));
     }
 
     @PutMapping("/projects/{projectId}/catalog/entries/{entryId}/organization")

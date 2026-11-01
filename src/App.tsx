@@ -756,7 +756,7 @@ export default function App() {
   const restoreEntry = async (entry: Entry) => {
     if (!project || !window.confirm(`恢复「${entry.key}」？恢复后它会重新出现在工作台和后续发布中。`)) return
     try {
-      await restoreRemoteEntry(project.id, entry.id, activeNamespaceId)
+      await restoreRemoteEntry(project.id, entry.id)
       setRemoteRefresh((value) => value + 1)
       notify('词条已恢复。')
     } catch (error) {

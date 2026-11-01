@@ -173,8 +173,11 @@ public class CatalogEntryApplicationService {
     @Transactional
     public void archive(ArchiveEntry command) {
         accessPolicy.requireCanManageCatalog(command.actorId(), command.projectId());
-        if (!entries.archive(command.projectId(), command.entryId(),
-                command.actorId(), clock.instant())) {
+        var entry = entries.findForSourceEdit(command.projectId(), command.entryId())
+                .orElseThrow(() -> new CatalogEntryNotFoundException(command.entryId()));
+        var change = entry.archive();
+        var occurredAt = clock.instant();
+        if (!entries.persistLifecycle(entry, change, command.actorId(), occurredAt)) {
             throw new CatalogEntryNotFoundException(command.entryId());
         }
         audit.record(command.projectId(), command.actorId(), "CATALOG_ENTRY_ARCHIVED",
@@ -184,9 +187,11 @@ public class CatalogEntryApplicationService {
     @Transactional
     public void restore(RestoreEntry command) {
         accessPolicy.requireCanManageCatalog(command.actorId(), command.projectId());
-        workspace.requireActiveNamespace(command.projectId(), command.namespaceId());
-        if (!entries.restore(command.projectId(), command.entryId(), command.namespaceId(),
-                command.actorId(), clock.instant())) {
+        var entry = entries.findArchivedForRestore(command.projectId(), command.entryId())
+                .orElseThrow(() -> new CatalogEntryNotFoundException(command.entryId()));
+        workspace.requireActiveNamespace(command.projectId(), entry.namespaceId());
+        var change = entry.restore();
+        if (!entries.persistLifecycle(entry, change, command.actorId(), clock.instant())) {
             throw new CatalogEntryNotFoundException(command.entryId());
         }
         audit.record(command.projectId(), command.actorId(), "CATALOG_ENTRY_RESTORED",
@@ -364,12 +369,11 @@ public class CatalogEntryApplicationService {
         }
     }
 
-    public record RestoreEntry(long actorId, long projectId, long entryId, long namespaceId) {
+    public record RestoreEntry(long actorId, long projectId, long entryId) {
         public RestoreEntry {
             requirePositive(actorId, "actorId");
             requirePositive(projectId, "projectId");
             requirePositive(entryId, "entryId");
-            requirePositive(namespaceId, "namespaceId");
         }
     }
 

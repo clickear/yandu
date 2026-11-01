@@ -3,6 +3,7 @@ package com.yandu.catalog.application;
 import com.yandu.catalog.domain.CatalogEntry;
 import com.yandu.catalog.domain.CatalogEntry.SourceChange;
 import com.yandu.catalog.domain.CatalogEntry.Reorganization;
+import com.yandu.catalog.domain.CatalogEntry.LifecycleChange;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.List;
@@ -14,17 +15,18 @@ public interface CatalogEntryRepository {
 
     Optional<CatalogEntry> findForRead(long projectId, long entryId);
 
+    Optional<CatalogEntry> findArchivedForRestore(long projectId, long entryId);
+
     EntrySearch search(long projectId, long namespaceId, String keyword, int offset, int limit);
 
     EntrySearch searchProject(long projectId, String keyword, int offset, int limit);
 
     List<RevisionSnapshot> history(long projectId, long entryId);
 
-    boolean archive(long projectId, long entryId, long actorId, Instant occurredAt);
+    boolean persistLifecycle(CatalogEntry entry, LifecycleChange change,
+                            long actorId, Instant occurredAt);
 
     EntrySearch searchArchived(long projectId, long namespaceId, String keyword, int offset, int limit);
-
-    boolean restore(long projectId, long entryId, long namespaceId, long actorId, Instant occurredAt);
 
     void insert(
             long namespaceId,

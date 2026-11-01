@@ -203,13 +203,14 @@ class CatalogEntryApplicationServiceTest {
     @Test
     void restoreChecksProjectAccessAndKeepsTheArchivedSourceRecord() {
         var repository = existingEntry();
+        repository.entries.get(101L).archive();
         repository.archived.add(101L);
         var policy = new RecordingAccessPolicy();
         var workspace = mock(WorkspaceApplicationService.class);
         org.mockito.Mockito.doNothing().when(workspace).requireActiveNamespace(PROJECT, 301L);
         var service = service(repository, policy, workspace);
 
-        service.restore(new CatalogEntryApplicationService.RestoreEntry(ACTOR, PROJECT, 101L, 301L));
+        service.restore(new CatalogEntryApplicationService.RestoreEntry(ACTOR, PROJECT, 101L));
 
         assertEquals(PROJECT, policy.projectId);
         assertFalse(repository.archived.contains(101L));
@@ -337,6 +338,11 @@ class CatalogEntryApplicationServiceTest {
         }
 
         @Override
+        public Optional<CatalogEntry> findArchivedForRestore(long projectId, long entryId) {
+            return archived.contains(entryId) ? Optional.ofNullable(entries.get(entryId)) : Optional.empty();
+        }
+
+        @Override
         public EntrySearch search(long projectId, long namespaceId, String keyword,
                                   int offset, int limit) {
             var matching = entries.values().stream()
@@ -359,11 +365,11 @@ class CatalogEntryApplicationServiceTest {
             return new EntrySearch(matching.stream().skip(offset).limit(limit).toList(), matching.size());
         }
 
-        @Override public boolean restore(long projectId, long entryId, long namespaceId,
-                                         long actorId, Instant occurredAt) {
-            var entry = entries.get(entryId);
-            return entry != null && entry.projectId() == projectId && entry.namespaceId() == namespaceId
-                    && archived.remove(entryId);
+        @Override public boolean persistLifecycle(CatalogEntry entry, CatalogEntry.LifecycleChange change,
+                                                  long actorId, Instant occurredAt) {
+            if (change.currentStatus() == CatalogEntry.Status.ARCHIVED) archived.add(entry.id());
+            else archived.remove(entry.id());
+            return true;
         }
 
         @Override
@@ -398,11 +404,6 @@ class CatalogEntryApplicationServiceTest {
         @Override
         public List<RevisionSnapshot> history(long projectId, long entryId) {
             return List.copyOf(history);
-        }
-
-        @Override
-        public boolean archive(long projectId, long entryId, long actorId, Instant occurredAt) {
-            return archived.add(entryId);
         }
 
         @Override

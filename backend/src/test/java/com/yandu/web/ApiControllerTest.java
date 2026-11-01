@@ -134,10 +134,9 @@ class ApiControllerTest {
                 41L, 10L, 30L, null, 1, 50));
 
         mvc.perform(post("/api/v1/projects/10/catalog/entries/20/restore")
-                        .queryParam("namespaceId", "30")
                         .with(jwt().jwt(token -> token.subject("external-subject"))))
                 .andExpect(status().isNoContent());
-        verify(catalog).restore(new CatalogEntryApplicationService.RestoreEntry(41L, 10L, 20L, 30L));
+        verify(catalog).restore(new CatalogEntryApplicationService.RestoreEntry(41L, 10L, 20L));
     }
 
     @Test

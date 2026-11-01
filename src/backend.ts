@@ -273,8 +273,8 @@ export function archiveRemoteEntry(projectId: string, entryId: string) {
   return request<void>(`/projects/${projectId}/catalog/entries/${entryId}`, { method: 'DELETE' })
 }
 
-export function restoreRemoteEntry(projectId: string, entryId: string, namespaceId: string) {
-  return request<void>(`/projects/${projectId}/catalog/entries/${entryId}/restore?namespaceId=${encodeURIComponent(namespaceId)}`, { method: 'POST' })
+export function restoreRemoteEntry(projectId: string, entryId: string) {
+  return request<void>(`/projects/${projectId}/catalog/entries/${entryId}/restore`, { method: 'POST' })
 }
 
 export async function listRemoteArchivedEntries(project: Project, namespaceId: string,

@@ -3,6 +3,7 @@ package com.yandu.catalog.infrastructure.mysql;
 import com.yandu.catalog.application.CatalogEntryRepository;
 import com.yandu.catalog.domain.CatalogEntry;
 import com.yandu.catalog.domain.CatalogEntry.SourceChange;
+import com.yandu.catalog.domain.CatalogEntry.LifecycleChange;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.List;
@@ -36,6 +37,11 @@ public class MyBatisCatalogEntryRepository implements CatalogEntryRepository,
     public Optional<CatalogEntry> findForRead(long projectId, long entryId) {
         var row = entries.findActive(projectId, entryId);
         return Optional.ofNullable(row).map(this::toDomain);
+    }
+
+    @Override
+    public Optional<CatalogEntry> findArchivedForRestore(long projectId, long entryId) {
+        return Optional.ofNullable(entries.findArchivedForUpdate(projectId, entryId)).map(this::toDomain);
     }
 
     @Override
@@ -90,11 +96,6 @@ public class MyBatisCatalogEntryRepository implements CatalogEntryRepository,
     }
 
     @Override
-    public boolean archive(long projectId, long entryId, long actorId, Instant occurredAt) {
-        return entries.archive(projectId, entryId, actorId, occurredAt) == 1;
-    }
-
-    @Override
     public EntrySearch searchArchived(long projectId, long namespaceId, String keyword,
                                       int offset, int limit) {
         var items = entries.searchArchived(projectId, namespaceId, keyword, offset, limit).stream()
@@ -103,9 +104,12 @@ public class MyBatisCatalogEntryRepository implements CatalogEntryRepository,
     }
 
     @Override
-    public boolean restore(long projectId, long entryId, long namespaceId,
-                           long actorId, Instant occurredAt) {
-        return entries.restore(projectId, entryId, namespaceId, actorId, occurredAt) == 1;
+    public boolean persistLifecycle(CatalogEntry entry,
+                                    LifecycleChange change,
+                                    long actorId, Instant occurredAt) {
+        return entries.updateLifecycle(entry.projectId(), entry.id(), change.previousStatus().name(),
+                change.previousVersion(), change.currentStatus().name(), change.currentVersion(),
+                actorId, occurredAt) == 1;
     }
 
     @Override
@@ -168,7 +172,8 @@ public class MyBatisCatalogEntryRepository implements CatalogEntryRepository,
 
     private CatalogEntry toDomain(CatalogEntryMapper.CatalogEntryRow row) {
         return new CatalogEntry(row.getId(), row.getProjectId(), row.getNamespaceId(), row.getEntryKey(),
-                row.getSourceText(), row.getSourceRevision(), row.getVersion());
+                row.getSourceText(), row.getSourceRevision(), row.getVersion(),
+                CatalogEntry.Status.valueOf(row.getStatus()));
     }
 
     private CatalogEntryRepository.GlossaryTerms.Term toTerm(CatalogEntryMapper.GlossaryTermRow row) {

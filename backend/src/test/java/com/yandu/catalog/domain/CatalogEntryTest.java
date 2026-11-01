@@ -83,4 +83,20 @@ class CatalogEntryTest {
         assertThrows(CatalogEntry.VersionConflictException.class,
                 () -> entry.reorganize(7, 303, "account.sign-in"));
     }
+
+    @Test
+    void archiveAndRestoreAreDomainTransitionsThatAdvanceCatalogVersion() {
+        var entry = new CatalogEntry(ENTRY_ID, PROJECT_ID, 301, "auth.login", "Sign in", 2, 4);
+
+        var archived = entry.archive();
+        assertEquals(CatalogEntry.Status.ARCHIVED, entry.status());
+        assertEquals(5, entry.version());
+        assertEquals(CatalogEntry.Status.ACTIVE, archived.previousStatus());
+
+        var restored = entry.restore();
+        assertEquals(CatalogEntry.Status.ACTIVE, entry.status());
+        assertEquals(6, entry.version());
+        assertEquals(CatalogEntry.Status.ARCHIVED, restored.previousStatus());
+        assertThrows(IllegalStateException.class, entry::restore);
+    }
 }
