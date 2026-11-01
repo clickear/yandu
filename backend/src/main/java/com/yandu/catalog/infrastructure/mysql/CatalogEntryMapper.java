@@ -73,6 +73,17 @@ public interface CatalogEntryMapper extends BaseMapper<CatalogEntryMapper.Catalo
                      @Param("namespaceId") long namespaceId,
                      @Param("keyword") String keyword);
 
+    @Select("SELECT id, project_id, namespace_id, source_locale, entry_key, source_text, source_revision, version, status, created_by, updated_by, created_at, updated_at FROM catalog_entries WHERE project_id = #{projectId} AND namespace_id = #{namespaceId} AND status = 'ARCHIVED' AND (#{keyword} IS NULL OR entry_key LIKE CONCAT('%', #{keyword}, '%')) ORDER BY id DESC LIMIT #{limit} OFFSET #{offset}")
+    List<CatalogEntryRow> searchArchived(@Param("projectId") long projectId,
+                                         @Param("namespaceId") long namespaceId,
+                                         @Param("keyword") String keyword,
+                                         @Param("offset") int offset,
+                                         @Param("limit") int limit);
+
+    @Select("SELECT COUNT(*) FROM catalog_entries WHERE project_id = #{projectId} AND namespace_id = #{namespaceId} AND status = 'ARCHIVED' AND (#{keyword} IS NULL OR entry_key LIKE CONCAT('%', #{keyword}, '%'))")
+    long countArchived(@Param("projectId") long projectId, @Param("namespaceId") long namespaceId,
+                       @Param("keyword") String keyword);
+
     @Select("SELECT id, project_id, namespace_id, source_locale, entry_key, source_text, source_revision, version, status, created_by, updated_by, created_at, updated_at FROM catalog_entries WHERE project_id = #{projectId} AND status = 'ACTIVE' AND (#{keyword} IS NULL OR entry_key LIKE CONCAT('%', #{keyword}, '%')) ORDER BY id DESC LIMIT #{limit} OFFSET #{offset}")
     List<CatalogEntryRow> searchProjectActive(@Param("projectId") long projectId,
                                               @Param("keyword") String keyword,
@@ -91,6 +102,11 @@ public interface CatalogEntryMapper extends BaseMapper<CatalogEntryMapper.Catalo
                 @Param("entryId") long entryId,
                 @Param("actorId") long actorId,
                 @Param("updatedAt") java.time.Instant updatedAt);
+
+    @Update("UPDATE catalog_entries SET status = 'ACTIVE', updated_by = #{actorId}, updated_at = #{updatedAt} WHERE project_id = #{projectId} AND id = #{entryId} AND namespace_id = #{namespaceId} AND status = 'ARCHIVED' AND EXISTS (SELECT 1 FROM namespaces n WHERE n.project_id = #{projectId} AND n.id = #{namespaceId} AND n.status = 'ACTIVE')")
+    int restore(@Param("projectId") long projectId, @Param("entryId") long entryId,
+                @Param("namespaceId") long namespaceId, @Param("actorId") long actorId,
+                @Param("updatedAt") Instant updatedAt);
 
     @Update("""
             UPDATE catalog_entries

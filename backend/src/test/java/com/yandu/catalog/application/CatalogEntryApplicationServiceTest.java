@@ -201,6 +201,22 @@ class CatalogEntryApplicationServiceTest {
     }
 
     @Test
+    void restoreChecksProjectAccessAndKeepsTheArchivedSourceRecord() {
+        var repository = existingEntry();
+        repository.archived.add(101L);
+        var policy = new RecordingAccessPolicy();
+        var workspace = mock(WorkspaceApplicationService.class);
+        org.mockito.Mockito.doNothing().when(workspace).requireActiveNamespace(PROJECT, 301L);
+        var service = service(repository, policy, workspace);
+
+        service.restore(new CatalogEntryApplicationService.RestoreEntry(ACTOR, PROJECT, 101L, 301L));
+
+        assertEquals(PROJECT, policy.projectId);
+        assertFalse(repository.archived.contains(101L));
+        assertEquals("Sign in", repository.entries.get(101L).sourceText());
+    }
+
+    @Test
     void staleSourceEditDoesNotPersistARevision() {
         var repository = existingEntry();
         var service = service(repository, new RecordingAccessPolicy());
@@ -333,6 +349,21 @@ class CatalogEntryApplicationServiceTest {
             var matching = entries.values().stream().filter(entry -> entry.projectId() == projectId)
                     .filter(entry -> keyword == null || entry.key().contains(keyword)).toList();
             return new EntrySearch(matching.stream().skip(offset).limit(limit).toList(), matching.size());
+        }
+
+        @Override public EntrySearch searchArchived(long projectId, long namespaceId, String keyword,
+                                                    int offset, int limit) {
+            var matching = entries.values().stream().filter(entry -> archived.contains(entry.id()))
+                    .filter(entry -> entry.projectId() == projectId && entry.namespaceId() == namespaceId)
+                    .filter(entry -> keyword == null || entry.key().contains(keyword)).toList();
+            return new EntrySearch(matching.stream().skip(offset).limit(limit).toList(), matching.size());
+        }
+
+        @Override public boolean restore(long projectId, long entryId, long namespaceId,
+                                         long actorId, Instant occurredAt) {
+            var entry = entries.get(entryId);
+            return entry != null && entry.projectId() == projectId && entry.namespaceId() == namespaceId
+                    && archived.remove(entryId);
         }
 
         @Override

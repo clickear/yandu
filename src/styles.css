@@ -822,6 +822,10 @@ tbody tr:hover {
   background: #eef8f3;
   color: #78ad92;
 }
+.status-archived {
+  color: var(--ink-muted);
+  background: var(--surface-subtle);
+}
 .status-in-review {
   background: #edf3ff;
   color: #4d6fa8;

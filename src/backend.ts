@@ -273,6 +273,23 @@ export function archiveRemoteEntry(projectId: string, entryId: string) {
   return request<void>(`/projects/${projectId}/catalog/entries/${entryId}`, { method: 'DELETE' })
 }
 
+export function restoreRemoteEntry(projectId: string, entryId: string, namespaceId: string) {
+  return request<void>(`/projects/${projectId}/catalog/entries/${entryId}/restore?namespaceId=${encodeURIComponent(namespaceId)}`, { method: 'POST' })
+}
+
+export async function listRemoteArchivedEntries(project: Project, namespaceId: string,
+                                                keyword: string, page: number) {
+  const params = new URLSearchParams({ namespaceId, page: String(page), pageSize: '50' })
+  if (keyword) params.set('keyword', keyword)
+  const result = await request<{ page: number; pageSize: number; total: number; items: {
+    id: string; key: string; sourceText: string; sourceRevision: number
+  }[] }>(`/projects/${project.id}/catalog/archived-entries?${params}`)
+  return { ...result, entries: result.items.map((item) => ({
+    id: item.id, key: item.key, source: item.sourceText, sourceRevision: item.sourceRevision,
+    workflowStatuses: { archived: 'ARCHIVED' }, translations: {},
+  } satisfies Entry)) }
+}
+
 type ApiEntry = {
   entryId: string
   key: string

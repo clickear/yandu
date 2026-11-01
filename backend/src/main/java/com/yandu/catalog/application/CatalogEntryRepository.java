@@ -22,6 +22,10 @@ public interface CatalogEntryRepository {
 
     boolean archive(long projectId, long entryId, long actorId, Instant occurredAt);
 
+    EntrySearch searchArchived(long projectId, long namespaceId, String keyword, int offset, int limit);
+
+    boolean restore(long projectId, long entryId, long namespaceId, long actorId, Instant occurredAt);
+
     void insert(
             long namespaceId,
             String sourceLocale,

@@ -95,6 +95,20 @@ public class MyBatisCatalogEntryRepository implements CatalogEntryRepository,
     }
 
     @Override
+    public EntrySearch searchArchived(long projectId, long namespaceId, String keyword,
+                                      int offset, int limit) {
+        var items = entries.searchArchived(projectId, namespaceId, keyword, offset, limit).stream()
+                .map(this::toDomain).toList();
+        return new EntrySearch(items, entries.countArchived(projectId, namespaceId, keyword));
+    }
+
+    @Override
+    public boolean restore(long projectId, long entryId, long namespaceId,
+                           long actorId, Instant occurredAt) {
+        return entries.restore(projectId, entryId, namespaceId, actorId, occurredAt) == 1;
+    }
+
+    @Override
     public void insert(long namespaceId, String sourceLocale,
                        CatalogEntry entry, long actorId, Instant occurredAt) {
         var row = new CatalogEntryMapper.CatalogEntryRow();

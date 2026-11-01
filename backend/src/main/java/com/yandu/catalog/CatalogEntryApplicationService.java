@@ -139,6 +139,17 @@ public class CatalogEntryApplicationService {
     }
 
     @Transactional(readOnly = true)
+    public EntryPage searchArchived(SearchEntries query) {
+        accessPolicy.requireCanReadCatalog(query.actorId(), query.projectId());
+        workspace.requireActiveNamespace(query.projectId(), query.namespaceId());
+        int offset = Math.multiplyExact(query.page() - 1, query.pageSize());
+        var result = entries.searchArchived(query.projectId(), query.namespaceId(),
+                query.keyword(), offset, query.pageSize());
+        return new EntryPage(query.page(), query.pageSize(), result.total(),
+                result.items().stream().map(entry -> EntryView.from(entry, false)).toList());
+    }
+
+    @Transactional(readOnly = true)
     public EntryPage searchProject(SearchProjectEntries query) {
         accessPolicy.requireCanReadCatalog(query.actorId(), query.projectId());
         int offset = Math.multiplyExact(query.page() - 1, query.pageSize());
@@ -167,6 +178,18 @@ public class CatalogEntryApplicationService {
             throw new CatalogEntryNotFoundException(command.entryId());
         }
         audit.record(command.projectId(), command.actorId(), "CATALOG_ENTRY_ARCHIVED",
+                "CATALOG_ENTRY", command.entryId(), java.util.Map.of());
+    }
+
+    @Transactional
+    public void restore(RestoreEntry command) {
+        accessPolicy.requireCanManageCatalog(command.actorId(), command.projectId());
+        workspace.requireActiveNamespace(command.projectId(), command.namespaceId());
+        if (!entries.restore(command.projectId(), command.entryId(), command.namespaceId(),
+                command.actorId(), clock.instant())) {
+            throw new CatalogEntryNotFoundException(command.entryId());
+        }
+        audit.record(command.projectId(), command.actorId(), "CATALOG_ENTRY_RESTORED",
                 "CATALOG_ENTRY", command.entryId(), java.util.Map.of());
     }
 
@@ -338,6 +361,15 @@ public class CatalogEntryApplicationService {
             requirePositive(actorId, "actorId");
             requirePositive(projectId, "projectId");
             requirePositive(entryId, "entryId");
+        }
+    }
+
+    public record RestoreEntry(long actorId, long projectId, long entryId, long namespaceId) {
+        public RestoreEntry {
+            requirePositive(actorId, "actorId");
+            requirePositive(projectId, "projectId");
+            requirePositive(entryId, "entryId");
+            requirePositive(namespaceId, "namespaceId");
         }
     }
 

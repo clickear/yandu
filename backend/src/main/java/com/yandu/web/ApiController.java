@@ -302,6 +302,18 @@ public class ApiController {
                 actors.resolve(principal), projectId, namespaceId, keyword, page, pageSize));
     }
 
+    @GetMapping("/projects/{projectId}/catalog/archived-entries")
+    @Operation(summary = "搜索已归档词条")
+    public CatalogEntryApplicationService.EntryPage searchArchivedEntries(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
+            @PathVariable long projectId, @RequestParam long namespaceId,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "50") int pageSize) {
+        return catalog.searchArchived(new CatalogEntryApplicationService.SearchEntries(
+                actors.resolve(principal), projectId, namespaceId, keyword, page, pageSize));
+    }
+
     @PutMapping("/projects/{projectId}/catalog/entries/{entryId}/source")
     public CatalogEntryApplicationService.EntryView changeSource(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
@@ -361,6 +373,15 @@ public class ApiController {
                              @PathVariable long entryId) {
         catalog.archive(new CatalogEntryApplicationService.ArchiveEntry(
                 actors.resolve(principal), projectId, entryId));
+    }
+
+    @PostMapping("/projects/{projectId}/catalog/entries/{entryId}/restore")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void restoreEntry(@Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
+                             @PathVariable long projectId, @PathVariable long entryId,
+                             @RequestParam long namespaceId) {
+        catalog.restore(new CatalogEntryApplicationService.RestoreEntry(
+                actors.resolve(principal), projectId, entryId, namespaceId));
     }
 
     @PutMapping("/projects/{projectId}/catalog/entries/{entryId}/organization")

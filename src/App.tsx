@@ -46,6 +46,8 @@ import {
   addRemoteMember,
   applyRemoteImport,
   archiveRemoteEntry,
+  restoreRemoteEntry,
+  listRemoteArchivedEntries,
   archiveRemoteGlossaryTerm,
   approveRemoteTranslation,
   reviewRemoteTranslation,
@@ -116,7 +118,7 @@ function readInitial() {
 
 const workflowStatusLabels: Record<string, string> = {
   reviewed: '已审核', 'in-review': '审核中', 'changes-requested': '已退回',
-  'needs-review': '需复核', draft: '草稿', untranslated: '未翻译',
+  'needs-review': '需复核', draft: '草稿', untranslated: '未翻译', archived: '已归档',
 }
 
 function readLocalProjectsForMigration(): Project[] {
@@ -642,7 +644,11 @@ export default function App() {
     }
     let active = true
     setRemoteLoading(true)
-    void loadTranslationPage(project, locale, query.trim(), filter, remotePage, activeNamespaceId).then((result) => {
+    const pageRequest = filter === 'archived'
+      ? listRemoteArchivedEntries(project, activeNamespaceId, query.trim(), remotePage)
+          .then((result) => ({ ...result, allTotal: result.total, translated: 0, reviewed: 0 }))
+      : loadTranslationPage(project, locale, query.trim(), filter, remotePage, activeNamespaceId)
+    void pageRequest.then((result) => {
       if (!active) return
       setWorkspace((current) => ({
         ...current,
@@ -747,6 +753,16 @@ export default function App() {
       notify(error instanceof Error ? error.message : '词条归档失败。', true)
     }
   }
+  const restoreEntry = async (entry: Entry) => {
+    if (!project || !window.confirm(`恢复「${entry.key}」？恢复后它会重新出现在工作台和后续发布中。`)) return
+    try {
+      await restoreRemoteEntry(project.id, entry.id, activeNamespaceId)
+      setRemoteRefresh((value) => value + 1)
+      notify('词条已恢复。')
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '词条恢复失败。', true)
+    }
+  }
   const download = (format: 'json-flat-v1' | 'java-properties-v1' = 'json-flat-v1') => {
     if (!project) return
     const extension = format === 'java-properties-v1' ? 'properties' : 'json'
@@ -792,7 +808,7 @@ export default function App() {
       const matches = [entry.key, entry.source, entry.translations[locale]?.value ?? ''].some(
         (value) => value.toLowerCase().includes(search),
       )
-      return matches && (filter === 'all' || statusOf(entry, locale) === filter)
+      return matches && (filter === 'all' || filter === 'archived' || statusOf(entry, locale) === filter)
     }) ?? []
   const entryCount = backendEnabled ? remoteAllTotal : project?.entries.length ?? 0
   const availableLanguages = LANGUAGES.filter(
@@ -1252,6 +1268,7 @@ export default function App() {
                       <option value="in-review">审核中</option>
                       <option value="changes-requested">已退回</option>
                       <option value="needs-review">需复核</option>
+                      <option value="archived">已归档</option>
                     </>}
                   </select>
                   <div className="toolbar-actions">
@@ -1294,7 +1311,7 @@ export default function App() {
                     <tbody>
                       {visible.map((entry, index) => {
                         const workflowStatus = backendEnabled ? entry.workflowStatuses?.[locale] : null
-                        const status = !backendEnabled ? statusOf(entry, locale)
+                        const status = filter === 'archived' ? 'archived' : !backendEnabled ? statusOf(entry, locale)
                           : workflowStatus === 'APPROVED' ? 'reviewed'
                             : workflowStatus === 'IN_REVIEW' ? 'in-review'
                               : workflowStatus === 'CHANGES_REQUESTED' ? 'changes-requested'
@@ -1319,19 +1336,19 @@ export default function App() {
                               </span>
                             </td>
                             <td className="row-actions">
-                              <button
+                              {filter !== 'archived' && <button
                                 className="edit-button"
                                 aria-label={`编辑译文 ${entry.key}`}
                                 onClick={() => setEditingId(entry.id)}
                               >
                                 译文
                                 <ChevronRight size={13} />
-                              </button>
-                              <button className="button plain" disabled={!canManageCatalog}
+                              </button>}
+                              {filter !== 'archived' && <button className="button plain" disabled={!canManageCatalog}
                                 onClick={() => { setSourceEditingId(entry.id); setSourceText(entry.source) }}>
                                 源文
-                              </button>
-                              {backendEnabled && canManageCatalog && (
+                              </button>}
+                              {backendEnabled && filter !== 'archived' && canManageCatalog && (
                                 <>
                                   <button className="button plain" aria-label={`改键 ${entry.key}`} onClick={async () => {
                                     const key = window.prompt('词条键（项目内唯一）', entry.key)?.trim()
@@ -1358,7 +1375,11 @@ export default function App() {
                                   </select>
                                 </>
                               )}
-                              {backendEnabled && canManageCatalog && (
+                              {backendEnabled && filter === 'archived' && canManageCatalog && (
+                                <button className="button plain" aria-label={`恢复 ${entry.key}`}
+                                  onClick={() => void restoreEntry(entry)}>恢复</button>
+                              )}
+                              {backendEnabled && filter !== 'archived' && canManageCatalog && (
                                 <button className="icon-button" aria-label={`归档 ${entry.key}`}
                                   onClick={() => void archiveEntry(entry)}>
                                   <Archive size={15} />
@@ -1374,13 +1395,15 @@ export default function App() {
                 {!visible.length && (
                   <div className="empty-state">
                     <Languages size={34} />
-                    <h3>{remoteLoading ? '正在加载文案…' : entryCount ? '没有找到匹配的文案' : '从第一条文案开始'}</h3>
+                    <h3>{remoteLoading ? '正在加载文案…' : filter === 'archived' ? '没有已归档的文案'
+                      : entryCount ? '没有找到匹配的文案' : '从第一条文案开始'}</h3>
                     <p>
-                      {entryCount
+                      {filter === 'archived' ? '当前命名空间没有归档词条。'
+                        : entryCount
                         ? '换个关键词，或调整状态筛选。'
                         : '添加一条源文案，或导入已有的 JSON 语言文件。'}
                     </p>
-                    {!entryCount && (
+                    {!entryCount && filter !== 'archived' && (
                       <button className="button secondary" onClick={() => openModal('entry')}>
                         添加文案
                       </button>
