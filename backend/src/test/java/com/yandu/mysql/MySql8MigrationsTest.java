@@ -49,7 +49,7 @@ import java.util.concurrent.TimeUnit;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.security.oauth2.resourceserver.jwt.issuer-uri=https://issuer.example.test",
         "spring.security.oauth2.resourceserver.jwt.audiences=yandu-api",
-        "yandu.import.poll-ms=60000",
+        "yandu.import.poll-ms=86400000",
         "yandu.sync.netty.enabled=true",
         "yandu.sync.netty.port=19091",
         "yandu.sync.websocket.enabled=true"
@@ -251,24 +251,26 @@ class MySql8MigrationsTest {
         assertEquals(HttpStatus.ACCEPTED, queued.getStatusCode());
         assertEquals("QUEUED", queued.getBody().path("status").asText());
 
+        String namespaceEndpoint = "http://localhost:" + port + "/api/v1/projects/" + projectId
+                + "/namespaces/" + namespaceId;
+        ResponseEntity<Void> archived = http.exchange(namespaceEndpoint, HttpMethod.DELETE,
+                new HttpEntity<>(headers), Void.class);
+        assertEquals(HttpStatus.OK, archived.getStatusCode());
         importJobs.dispatchQueuedJobs();
         String jobEndpoint = "http://localhost:" + port + "/api/v1/projects/" + projectId
                 + "/imports/" + jobId;
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
-        JsonNode completed = null;
-        while (System.nanoTime() < deadline) {
-            ResponseEntity<JsonNode> current = http.exchange(jobEndpoint, HttpMethod.GET,
-                    new HttpEntity<>(headers), JsonNode.class);
-            assertEquals(HttpStatus.OK, current.getStatusCode());
-            String status = current.getBody().path("status").asText();
-            if ("COMPLETED".equals(status)) {
-                completed = current.getBody();
-                break;
-            }
-            if ("FAILED".equals(status)) throw new AssertionError("Import job failed: " + current.getBody());
-            Thread.sleep(25);
-        }
-        assertNotNull(completed, "MySQL import worker should finish before the integration-test deadline");
+        JsonNode failed = awaitImportStatus(jobEndpoint, headers, "FAILED");
+        assertFalse(failed.path("error").asText().isBlank());
+
+        ResponseEntity<JsonNode> restored = http.postForEntity(namespaceEndpoint + "/restore",
+                new HttpEntity<>(headers), JsonNode.class);
+        assertEquals(HttpStatus.OK, restored.getStatusCode());
+        ResponseEntity<JsonNode> retried = http.postForEntity(jobEndpoint + "/retry",
+                new HttpEntity<>(applyBody, headers), JsonNode.class);
+        assertEquals(HttpStatus.ACCEPTED, retried.getStatusCode());
+        assertEquals("QUEUED", retried.getBody().path("status").asText());
+        importJobs.dispatchQueuedJobs();
+        JsonNode completed = awaitImportStatus(jobEndpoint, headers, "COMPLETED");
 
         try (var connection = dataSource.getConnection();
              var statement = connection.prepareStatement("""
@@ -292,6 +294,23 @@ class MySql8MigrationsTest {
             }
         }
         assertEquals("COMPLETED", completed.path("status").asText());
+    }
+
+    private JsonNode awaitImportStatus(String jobEndpoint, HttpHeaders headers, String expectedStatus)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+        while (System.nanoTime() < deadline) {
+            ResponseEntity<JsonNode> current = http.exchange(jobEndpoint, HttpMethod.GET,
+                    new HttpEntity<>(headers), JsonNode.class);
+            assertEquals(HttpStatus.OK, current.getStatusCode());
+            String status = current.getBody().path("status").asText();
+            if (expectedStatus.equals(status)) return current.getBody();
+            if ("FAILED".equals(status) || "COMPLETED".equals(status)) {
+                throw new AssertionError("Expected import status " + expectedStatus + " but got " + current.getBody());
+            }
+            Thread.sleep(25);
+        }
+        throw new AssertionError("Import job did not reach " + expectedStatus + " before the integration deadline");
     }
 
     @Test
