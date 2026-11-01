@@ -55,6 +55,14 @@ describe('project and translation workflow', () => {
     expect(progress(createProject('Empty'), 'en-US').percentage).toBe(0)
     expect(statusOf(project().entries[8], 'en-US')).toBe('untranslated')
   })
+  it('treats an omitted server translation value as untranslated', () => {
+    const entry = project().entries[8]
+    const incomplete = {
+      ...entry,
+      translations: { 'en-US': { value: undefined as unknown as string, status: 'draft' as const } },
+    }
+    expect(statusOf(incomplete, 'en-US')).toBe('untranslated')
+  })
 })
 
 describe('JSON import/export', () => {

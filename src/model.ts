@@ -144,7 +144,7 @@ export function saveTranslation(
 
 export function statusOf(entry: Entry, locale: string): 'untranslated' | 'draft' | 'reviewed' {
   const translation = entry.translations[locale]
-  return !translation?.value.trim() ? 'untranslated' : translation.status
+  return !translation?.value?.trim() ? 'untranslated' : translation.status
 }
 
 export function progress(project: Project, locale: string) {

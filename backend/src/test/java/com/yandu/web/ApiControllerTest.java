@@ -103,6 +103,22 @@ class ApiControllerTest {
     }
 
     @Test
+    void catalogEntryReadReturnsTheVersionRequiredForReorganization() throws Exception {
+        given(actors.resolve(any())).willReturn(41L);
+        given(catalog.get(41L, 10L, 20L)).willReturn(new CatalogEntryApplicationService.EntryView(
+                "20", "10", "30", "home.title", "Welcome", 2, 7, false));
+
+        mvc.perform(get("/api/v1/projects/10/catalog/entries/20")
+                        .with(jwt().jwt(token -> token.subject("external-subject"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("20"))
+                .andExpect(jsonPath("$.namespaceId").value("30"))
+                .andExpect(jsonPath("$.version").value(7));
+
+        verify(catalog).get(41L, 10L, 20L);
+    }
+
+    @Test
     void translationReviewCanReturnWorkWithAnAuditableReason() throws Exception {
         given(actors.resolve(any())).willReturn(41L);
         given(translations.decide(any())).willReturn(new TranslationApplicationService.TranslationView(

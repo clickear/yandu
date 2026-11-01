@@ -332,6 +332,7 @@ erDiagram
 | `GET /api/v1/me/organizations` | 当前用户组织列表 | — |
 | `GET/POST /api/v1/organizations/{orgId}/projects` | 项目列表/创建 | 创建可选 idempotency key |
 | `GET/PATCH /api/v1/projects/{projectId}` | 项目详情/改名、语言配置 | PATCH 带 `If-Match` 或 body version |
+| `GET /api/v1/projects/{projectId}/catalog/entries/{entryId}` | 读取词条当前键、命名空间及目录版本 | 项目授权；改键/移动命令据此提交 `expectedVersion` |
 | `GET/POST /api/v1/projects/{projectId}/entries` | 搜索/创建条目 | 创建 key 唯一约束 |
 | `PATCH /api/v1/projects/{projectId}/entries/{entryId}/source` | 修改源文并使旧翻译待复核 | `expectedSourceRevision` |
 | `GET /api/v1/projects/{projectId}/translations` | 按 locale/status/key 搜索、游标分页 | read model |

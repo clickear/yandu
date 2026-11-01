@@ -259,7 +259,7 @@ type ApiEntry = {
   entryId: string
   key: string
   sourceText: string
-  translation: string | null
+  translation?: string | null
   sourceRevision: number
   translationVersion: number | null
   translationSourceRevision: number | null
@@ -287,7 +287,7 @@ export async function loadTranslationPage(project: Project, locale: string, keyw
     sourceRevision: item.sourceRevision,
     versions: { [locale]: item.translationVersion },
     workflowStatuses: { [locale]: item.status },
-    translations: item.translation === null ? {} : {
+    translations: item.translation === null || item.translation === undefined ? {} : {
       [locale]: { value: item.translation, status: item.status === 'APPROVED' ? 'reviewed' : 'draft' },
     },
   }))

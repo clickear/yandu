@@ -280,6 +280,15 @@ public class ApiController {
                 sourceLocale, body.key(), body.sourceText()));
     }
 
+    @GetMapping("/projects/{projectId}/catalog/entries/{entryId}")
+    @Operation(summary = "读取词条目录信息", description = "返回当前词条键、命名空间和目录版本，供安全的改键或移动操作提交期望版本。")
+    public CatalogEntryApplicationService.EntryView catalogEntry(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt principal,
+            @PathVariable long projectId,
+            @PathVariable long entryId) {
+        return catalog.get(actors.resolve(principal), projectId, entryId);
+    }
+
     @GetMapping("/projects/{projectId}/catalog/entries")
     @Operation(summary = "搜索源词条")
     public CatalogEntryApplicationService.EntryPage searchEntries(
