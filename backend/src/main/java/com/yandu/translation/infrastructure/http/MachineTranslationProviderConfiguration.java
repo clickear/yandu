@@ -2,6 +2,7 @@ package com.yandu.translation.infrastructure.http;
 
 import com.yandu.translation.contract.MachineTranslationProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -10,6 +11,7 @@ import org.springframework.context.annotation.Configuration;
 public class MachineTranslationProviderConfiguration {
 
     @Bean
+    @ConditionalOnProperty(prefix = "yandu.machine-translation", name = "provider", havingValue = "unavailable", matchIfMissing = true)
     @ConditionalOnMissingBean(MachineTranslationProvider.class)
     MachineTranslationProvider unavailableMachineTranslationProvider() {
         return new MachineTranslationProvider() {
