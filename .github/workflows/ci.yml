@@ -47,3 +47,9 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - run: npm run test:e2e:api
+      - name: Prepare isolated schema for browser-to-MySQL workflow
+        run: mysql --protocol=tcp --host=127.0.0.1 --user=root --password=yandu-ci-root -e "CREATE DATABASE yandu_browser_e2e CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"
+      - name: Verify browser to API to MySQL main workflow
+        run: npm run test:e2e:mysql
+        env:
+          YANDU_E2E_DB_PASSWORD: yandu-ci-root
